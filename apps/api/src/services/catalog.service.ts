@@ -22,7 +22,8 @@ const FrameworkFile = z.object({
     name: z.string(),
     jurisdiction: z.string(),
   }),
-  version: z.string(),
+  /** Integer string; versions are ordered numerically. */
+  version: z.string().regex(/^[0-9]+$/, "framework versions are integers"),
   status: z.enum(["draft", "published"]),
   note: z.string().optional(),
   provisions: z.array(
@@ -88,6 +89,7 @@ export async function loadCatalogFiles(): Promise<CatalogFiles> {
   return {
     frameworks: [
       await read("dpdp-rules-2025/v1.json"),
+      await read("dpdp-rules-2025/v2.json"),
       await read("dpdpa-2023/v1.json"),
       await read("aigis-baseline/v1.json"),
       await read("aigis-baseline/v2.json"),
@@ -146,8 +148,8 @@ export const catalogService = {
           })),
         );
         summary.versionsCreated++;
-        // A newly published version supersedes older published ones (they stay as history).
-        if (f.status === "published") await catalogRepository.retireOlderPublished(tx, fw.id, version.id);
+        // A newly published version supersedes older draft / published ones (they stay as history).
+        if (f.status === "published") await catalogRepository.retireOlderVersions(tx, fw.id, version.id);
 
         const provisionMaps = new Map<string, Map<string, string>>();
         for (const c of f.controls) {
@@ -271,6 +273,7 @@ export const catalogService = {
           ref: string;
           title: string;
           status: string;
+          effectiveFrom: string | null;
         }[];
       }
     >();
@@ -296,6 +299,7 @@ export const catalogService = {
           ref: r.provisionRef,
           title: r.provisionTitle,
           status: r.provisionStatus,
+          effectiveFrom: r.provisionEffectiveFrom ?? null,
         });
       }
       byId.set(r.control.id, c);

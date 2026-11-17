@@ -3,7 +3,7 @@ import type { DataSensitivity } from "./ropa.ts";
 
 /**
  * AIGIS — AI governance under DPDPA (only). Pure types, risk tiering, gaps, workflow.
- * Every tier rule and gap cites the DPDPA 2023 section (or draft DPDP Rules 2025 rule)
+ * Every tier rule and gap cites the DPDPA 2023 section (or DPDP Rules 2025 rule, G.S.R. 846(E))
  * it applies; no foreign frameworks or concepts.
  */
 

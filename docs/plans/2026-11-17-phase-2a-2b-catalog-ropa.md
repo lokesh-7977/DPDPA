@@ -4,7 +4,7 @@ Part of `2026-11-17-b2b-dpdpa-platform.md`.
 
 ## 2a — Compliance rule catalog (global, versioned, content as data)
 - Files: `apps/api/catalog/dpdpa-2023/v1.json` (Act sections + controls), `catalog/dpdp-rules-2025/v1.json`
-  (Rules; seeded as **draft** until checked against the Gazette text G.S.R. 846(E)),
+  (Rules; v1 seeded as **draft**, superseded on 2026-11-17 by v2 checked against the final text G.S.R. 846(E)),
   `catalog/detection-rules/v1.json` (finding → control mapping).
 - Tables (`db/schemas/rules/`): `frameworks`, `framework_versions` (draft/published/retired + content sha256),
   `provisions` (ref like `s.8(5)`, `effective_from`, applicability), `controls`, `control_provisions`,

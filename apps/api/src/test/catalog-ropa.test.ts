@@ -27,13 +27,46 @@ before(async () => {
 after(() => t.closeDb());
 
 describe("2a: compliance catalog", () => {
-  test("seeding is idempotent; Rules are draft, DPDPA published", async () => {
+  test("seeding is idempotent; Act, final Rules (G.S.R. 846(E)) and AIGIS published", async () => {
     const again = await catalogService.seed(await loadCatalogFiles());
     assert.deepEqual(again, { versionsCreated: 0, controlsCreated: 0, rulesCreated: 0 });
 
     const fws = await t.call("GET", "/catalog/frameworks", viewerToken);
     const status = Object.fromEntries(fws.body.map((f: any) => [f.code, f.versions[0].status]));
-    assert.deepEqual(status, { AIGIS_BASELINE: "published", DPDPA_2023: "published", DPDP_RULES_2025: "draft" });
+    assert.deepEqual(status, { AIGIS_BASELINE: "published", DPDPA_2023: "published", DPDP_RULES_2025: "published" });
+  });
+
+  test("final Rules (G.S.R. 846(E)) supersede the draft; commencement dates per rule 1", async () => {
+    const fws = (await t.call("GET", "/catalog/frameworks", viewerToken)).body;
+    const rules = fws.find((f: any) => f.code === "DPDP_RULES_2025");
+    assert.deepEqual(rules.versions.map((v: any) => [v.version, v.status]), [
+      ["2", "published"],
+      ["1", "retired"],
+    ]);
+    assert.ok(rules.versions[0].note.includes("G.S.R. 846(E)"));
+
+    const controls = (await t.call("GET", "/catalog/controls", viewerToken)).body.controls;
+    const ruleRefs = new Map<string, string | null>();
+    for (const c of controls) {
+      for (const p of c.provisions) if (p.framework === "DPDP_RULES_2025") ruleRefs.set(p.ref, p.effectiveFrom);
+    }
+    // Rule 1(3): rule 4 one year after publication; rule 1(4): rules 3, 5-16, 22, 23 after eighteen months.
+    assert.equal(ruleRefs.get("r.4") ?? "2026-11-13", "2026-11-13");
+    assert.equal(ruleRefs.get("r.7"), "2027-05-13");
+    assert.equal(ruleRefs.get("r.6"), "2027-05-13");
+    for (const c of controls) {
+      for (const p of c.provisions) if (p.framework === "DPDP_RULES_2025") assert.equal(p.status, "published", `${c.code} ${p.ref}`);
+    }
+  });
+
+  test("rules catalog file: all 23 rules with the commencement tranche from rule 1", async () => {
+    const files = await loadCatalogFiles();
+    const v2 = files.frameworks.find((f: any) => f.framework.code === "DPDP_RULES_2025" && f.version === "2") as any;
+    assert.equal(v2.provisions.length, 23);
+    const date = (n: number) => v2.provisions.find((p: any) => p.ref === `r.${n}`).effectiveFrom;
+    for (const n of [1, 2, 17, 18, 19, 20, 21]) assert.equal(date(n), "2025-11-13", `r.${n}`);
+    assert.equal(date(4), "2026-11-13");
+    for (const n of [3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 22, 23]) assert.equal(date(n), "2027-05-13", `r.${n}`);
   });
 
   test("changed content under the same version is refused (published content is immutable)", async () => {
@@ -42,12 +75,12 @@ describe("2a: compliance catalog", () => {
     await assert.rejects(catalogService.seed(files), /content changed/);
   });
 
-  test("controls map to Act sections and (draft) Rules", async () => {
+  test("controls map to Act sections and the final Rules", async () => {
     const res = await t.call("GET", "/catalog/controls", viewerToken);
     const sec02 = res.body.controls.find((c: any) => c.code === "DPDP-SEC-02");
     assert.deepEqual(
       sec02.provisions.map((p: any) => `${p.framework}:${p.ref}:${p.status}`).sort(),
-      ["DPDPA_2023:s.8(5):published", "DPDP_RULES_2025:r.6:draft"],
+      ["DPDPA_2023:s.8(5):published", "DPDP_RULES_2025:r.6:published"],
     );
   });
 
