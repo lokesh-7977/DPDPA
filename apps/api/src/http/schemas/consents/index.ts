@@ -17,6 +17,8 @@ export const ConsentSchema = z
     expiresAt: z.iso.datetime().nullable(),
     withdrawnAt: z.iso.datetime().nullable(),
     withdrawalReason: z.string().nullable(),
+    consentManagerId: z.uuid().nullable(),
+    consentManagerRef: z.string().nullable(),
   })
   .openapi("Consent");
 
@@ -41,6 +43,13 @@ export const GrantConsentSchema = z
       .enum(["web", "mobile", "api", "consent_manager", "offline"])
       .openapi({ example: "web" }),
     expiresAt: z.iso.datetime().optional(),
+    /** Required with channel consent_manager: a Consent Manager registered by this org. */
+    consentManagerId: z.uuid().optional(),
+    /** The Consent Manager's reference for this consent (no personal data). */
+    consentManagerRef: z
+      .string()
+      .regex(/^[A-Za-z0-9._:-]{1,100}$/)
+      .optional(),
   })
   .refine((v) => v.noticeVersion || v.noticeVersionId, "noticeVersion or noticeVersionId is required")
   .openapi("GrantConsent");
@@ -72,6 +81,8 @@ export const toConsentDto = (r: Consent) => ({
   language: r.language,
   channel: r.channel,
   withdrawalReason: r.withdrawalReason,
+  consentManagerId: r.consentManagerId,
+  consentManagerRef: r.consentManagerRef,
   grantedAt: r.grantedAt.toISOString(),
   expiresAt: r.expiresAt?.toISOString() ?? null,
   withdrawnAt: r.withdrawnAt?.toISOString() ?? null,

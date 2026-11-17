@@ -10,6 +10,7 @@ export const PurposeSchema = z
     dataCategories: z.array(z.string()),
     legalBasis: z.enum(["consent", "legitimate_use"]),
     retentionDays: z.number().int(),
+    involvesTracking: z.boolean(),
     active: z.boolean(),
     /** ROPA processing activity this purpose belongs to. */
     processingActivityId: z.uuid().nullable(),
@@ -33,6 +34,8 @@ export const CreatePurposeSchema = z
       .openapi({ example: ["email", "name"] }),
     legalBasis: z.enum(["consent", "legitimate_use"]).default("consent"),
     retentionDays: z.number().int().positive().openapi({ example: 365 }),
+    /** Tracking, behavioural monitoring or targeted ads: consent from children refused (s.9(3)). */
+    involvesTracking: z.boolean().default(false),
     processingActivityId: z.uuid().optional(),
   })
   .openapi("CreatePurpose");
@@ -49,6 +52,7 @@ export const toPurposeDto = (p: Purpose) => ({
   dataCategories: p.dataCategories,
   legalBasis: p.legalBasis,
   retentionDays: p.retentionDays,
+  involvesTracking: p.involvesTracking,
   active: p.active,
   processingActivityId: p.processingActivityId,
   createdAt: p.createdAt.toISOString(),

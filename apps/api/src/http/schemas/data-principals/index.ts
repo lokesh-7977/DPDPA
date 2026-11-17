@@ -9,6 +9,7 @@ export const DataPrincipalSchema = z
     phone: z.string().nullable(),
     isChild: z.boolean(),
     guardianId: z.uuid().nullable(),
+    guardianKind: z.enum(["parent", "lawful_guardian"]).nullable(),
     createdAt: z.iso.datetime(),
     erasedAt: z.iso.datetime().nullable(),
   })
@@ -24,10 +25,16 @@ export const CreateDataPrincipalSchema = z
       .optional(),
     isChild: z.boolean().default(false),
     guardianId: z.uuid().optional(),
+    /** Adults with a lawful guardian (person with disability, r.11): "lawful_guardian". */
+    guardianKind: z.enum(["parent", "lawful_guardian"]).optional(),
   })
-  .refine((v) => v.isChild === Boolean(v.guardianId), {
-    message: "guardianId is required for a child and not allowed for an adult",
+  .refine((v) => !v.isChild || Boolean(v.guardianId), {
+    message: "guardianId is required for a child",
     path: ["guardianId"],
+  })
+  .refine((v) => v.isChild || !v.guardianId || v.guardianKind === "lawful_guardian", {
+    message: "An adult can only have a lawful guardian (guardianKind: lawful_guardian, r.11)",
+    path: ["guardianKind"],
   })
   .openapi("CreateDataPrincipal");
 
@@ -50,6 +57,7 @@ export const toDataPrincipalDto = (p: DataPrincipal) => ({
   phone: p.phone,
   isChild: p.isChild,
   guardianId: p.guardianId,
+  guardianKind: p.guardianKind,
   createdAt: p.createdAt.toISOString(),
   erasedAt: p.erasedAt?.toISOString() ?? null,
 });

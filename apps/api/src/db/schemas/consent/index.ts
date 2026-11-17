@@ -15,6 +15,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { createdAt } from "../_shared/index.ts";
+import { guardianKinds, verificationMethods, appointingAuthorities } from "../../../domain/guardians.ts";
 import { organizations } from "../auth/index.ts";
 import { noticeVersions } from "../notices/index.ts";
 import { processingActivities } from "../ropa/index.ts";
@@ -24,6 +25,8 @@ import { processingActivities } from "../ropa/index.ts";
  * Composite foreign keys (org_id, x_id) make cross-tenant references impossible
  * at the database level, not just in application code.
  */
+
+export const guardianKind = pgEnum("guardian_kind", guardianKinds);
 
 /** Data Principal (DPDPA s.2(j)): the individual the personal data relates to. */
 export const dataPrincipals = pgTable(
@@ -40,6 +43,8 @@ export const dataPrincipals = pgTable(
     /** Children's data needs verifiable guardian consent (DPDPA s.9). */
     isChild: boolean("is_child").notNull().default(false),
     guardianId: uuid("guardian_id"),
+    /** parent (child, s.9) or lawful_guardian (person with disability, r.11). */
+    guardianKind: guardianKind("guardian_kind"),
     createdAt: createdAt(),
     /** Set when PII is erased (DPDPA s.12). Row stays so consents/audit keep referential integrity. */
     erasedAt: timestamp("erased_at", { withTimezone: true }),
@@ -54,7 +59,11 @@ export const dataPrincipals = pgTable(
       foreignColumns: [t.orgId, t.id],
     }),
     // Children must have a guardian; adults must not.
-    check("data_principals_child_guardian_ck", sql`${t.isChild} = (${t.guardianId} IS NOT NULL)`),
+    // A guardian always has a kind; children's guardian is a parent; adults may have a lawful guardian.
+    check(
+      "data_principals_guardian_kind_ck",
+      sql`(${t.guardianId} IS NULL) = (${t.guardianKind} IS NULL) AND (NOT ${t.isChild} OR ${t.guardianKind} = 'parent') AND (${t.isChild} OR ${t.guardianKind} IS DISTINCT FROM 'parent')`,
+    ),
   ],
 );
 
@@ -74,6 +83,8 @@ export const purposes = pgTable(
     dataCategories: text("data_categories").array().notNull(),
     legalBasis: legalBasis("legal_basis").notNull().default("consent"),
     retentionDays: integer("retention_days").notNull(),
+    /** Tracking, behavioural monitoring or targeted advertising: never for children (s.9(3)). */
+    involvesTracking: boolean("involves_tracking").notNull().default(false),
     active: boolean("active").notNull().default(true),
     /** The ROPA processing activity this consent purpose belongs to. */
     processingActivityId: uuid("processing_activity_id").references(() => processingActivities.id),
@@ -83,6 +94,66 @@ export const purposes = pgTable(
     unique("purposes_org_id_uq").on(t.orgId, t.id),
     uniqueIndex("purposes_code_uq").on(t.orgId, t.code),
     check("purposes_retention_ck", sql`${t.retentionDays} > 0`),
+  ],
+);
+
+/** Consent Managers the org accepts consents through (DPDPA s.6(7)-(9); DPDP Rules r.4). */
+export const consentManagerStatus = pgEnum("consent_manager_status", ["active", "suspended"]);
+
+export const consentManagers = pgTable(
+  "consent_managers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    name: text("name").notNull(),
+    /** Registration with the Data Protection Board (r.4(1)). */
+    boardRegistrationNo: text("board_registration_no").notNull(),
+    status: consentManagerStatus("status").notNull().default("active"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("consent_managers_org_id_uq").on(t.orgId, t.id),
+    uniqueIndex("consent_managers_reg_uq").on(t.orgId, t.boardRegistrationNo),
+  ],
+);
+
+export const guardianVerificationMethod = pgEnum("guardian_verification_method", verificationMethods);
+export const appointingAuthority = pgEnum("appointing_authority", appointingAuthorities);
+
+/** Due diligence that the person consenting for a child / ward is who they say (r.10, r.11). */
+export const guardianVerifications = pgTable(
+  "guardian_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    principalId: uuid("principal_id").notNull(),
+    guardianId: uuid("guardian_id").notNull(),
+    kind: guardianKind("kind").notNull(),
+    method: guardianVerificationMethod("method").notNull(),
+    tokenIssuer: text("token_issuer"),
+    appointingAuthority: appointingAuthority("appointing_authority"),
+    /** Token / order reference. Cleared on erasure. Never an identity number. */
+    reference: text("reference"),
+    verifiedBy: text("verified_by").notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("guardian_verifications_principal_idx").on(t.orgId, t.principalId),
+    foreignKey({
+      name: "guardian_verifications_principal_fk",
+      columns: [t.orgId, t.principalId],
+      foreignColumns: [dataPrincipals.orgId, dataPrincipals.id],
+    }),
+    foreignKey({
+      name: "guardian_verifications_guardian_fk",
+      columns: [t.orgId, t.guardianId],
+      foreignColumns: [dataPrincipals.orgId, dataPrincipals.id],
+    }),
   ],
 );
 
@@ -113,6 +184,10 @@ export const consents = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
     withdrawalReason: text("withdrawal_reason"),
+    /** Given through a registered Consent Manager (s.6(7)-(9), r.4). */
+    consentManagerId: uuid("consent_manager_id"),
+    /** The Consent Manager's own reference for this consent. */
+    consentManagerRef: text("consent_manager_ref"),
   },
   (t) => [
     foreignKey({
@@ -130,6 +205,12 @@ export const consents = pgTable(
       columns: [t.orgId, t.noticeVersionId],
       foreignColumns: [noticeVersions.orgId, noticeVersions.id],
     }),
+    foreignKey({
+      name: "consents_consent_manager_fk",
+      columns: [t.orgId, t.consentManagerId],
+      foreignColumns: [consentManagers.orgId, consentManagers.id],
+    }),
+    check("consents_consent_manager_ck", sql`(${t.channel} = 'consent_manager') = (${t.consentManagerId} IS NOT NULL)`),
     index("consents_principal_idx").on(t.orgId, t.principalId),
     index("consents_purpose_idx").on(t.orgId, t.purposeId),
     // At most one live consent per principal+purpose.
@@ -168,3 +249,5 @@ export const noticeVersionPurposes = pgTable(
 export type DataPrincipal = typeof dataPrincipals.$inferSelect;
 export type Purpose = typeof purposes.$inferSelect;
 export type Consent = typeof consents.$inferSelect;
+export type ConsentManager = typeof consentManagers.$inferSelect;
+export type GuardianVerification = typeof guardianVerifications.$inferSelect;
