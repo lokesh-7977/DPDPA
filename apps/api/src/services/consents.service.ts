@@ -7,6 +7,7 @@ import {
   type ConsentFilter,
 } from "../repositories/consents.repository.ts";
 import { dataPrincipalsRepository } from "../repositories/data-principals.repository.ts";
+import { guardiansRepository } from "../repositories/guardians.repository.ts";
 import { purposesRepository } from "../repositories/purposes.repository.ts";
 import { auditService } from "./audit.service.ts";
 import { publishedNoticeForConsent } from "./notices.service.ts";
@@ -21,6 +22,9 @@ export type GrantConsentInput = {
   language: string;
   channel: string;
   expiresAt?: Date;
+  /** Required when channel is consent_manager (s.6(7)-(9), r.4). */
+  consentManagerId?: string;
+  consentManagerRef?: string;
 };
 
 export const consentsService = {
@@ -54,6 +58,19 @@ export const consentsService = {
         );
         if (!guardian || guardian.erasedAt)
           throw unprocessable("Guardian erased");
+        // r.10 / r.11: the guardian's identity must have been verified before their consent counts.
+        if (
+          !(await guardiansRepository.activeVerification(
+            tx,
+            ctx.orgId,
+            principal.id,
+            principal.guardianId,
+          ))
+        ) {
+          throw unprocessable(
+            "Verifiable consent: record how the guardian was verified first (DPDP Rules r.10 / r.11)",
+          );
+        }
       }
 
       const purpose = await purposesRepository.findById(
@@ -65,6 +82,32 @@ export const consentsService = {
       if (!purpose.active) throw unprocessable("Purpose inactive");
       if (purpose.legalBasis !== "consent")
         throw unprocessable("Purpose is not consent-based");
+      if (principal.isChild && purpose.involvesTracking) {
+        throw unprocessable(
+          "Tracking, behavioural monitoring or targeted advertising directed at children is prohibited (s.9(3))",
+        );
+      }
+      if (input.channel === "consent_manager") {
+        if (!input.consentManagerId)
+          throw unprocessable(
+            "consentManagerId is required for the consent_manager channel",
+          );
+        const cm = await guardiansRepository.findManager(
+          tx,
+          ctx.orgId,
+          input.consentManagerId,
+        );
+        if (!cm)
+          throw unprocessable(
+            "Consent Manager not registered with this organization",
+          );
+        if (cm.status !== "active")
+          throw unprocessable("Consent Manager is suspended");
+      } else if (input.consentManagerId) {
+        throw unprocessable(
+          "consentManagerId is only allowed with the consent_manager channel",
+        );
+      }
 
       let noticeVersion = input.noticeVersion;
       if (input.noticeVersionId) {
@@ -107,6 +150,7 @@ export const consentsService = {
           purposeCode: purpose.code,
           noticeVersion,
           noticeVersionId: input.noticeVersionId ?? null,
+          consentManagerId: input.consentManagerId ?? null,
           language: input.language,
           channel: input.channel,
           expiresAt: input.expiresAt?.toISOString() ?? null,

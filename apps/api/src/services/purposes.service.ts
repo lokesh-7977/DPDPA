@@ -14,6 +14,7 @@ export type CreatePurposeInput = {
   legalBasis: "consent" | "legitimate_use";
   retentionDays: number;
   processingActivityId?: string;
+  involvesTracking?: boolean;
 };
 
 const READ = ["consents:read", "consents:write"] as const;

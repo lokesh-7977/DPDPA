@@ -142,6 +142,12 @@ describe("consent module, scoped per organization", () => {
     assert.equal((await t.call("POST", P("/data-principals"), writeKey, { externalRef: "adult", guardianId: guardian })).status, 400);
     const child = await t.call("POST", P("/data-principals"), writeKey, { externalRef: "kid", isChild: true, guardianId: guardian });
     assert.equal(child.status, 201);
+    // r.10: the parent must be verified before their consent for the child counts.
+    assert.equal((await t.call("POST", P("/consents"), writeKey, grantBody(child.body.id))).status, 422);
+    const verified = await t.call("POST", P(`/data-principals/${child.body.id}/guardian-verifications`), writeKey, {
+      method: "reliable_details_held",
+    });
+    assert.equal(verified.status, 201, JSON.stringify(verified.body));
     assert.equal((await t.call("POST", P("/consents"), writeKey, grantBody(child.body.id))).status, 201);
     assert.equal(
       (await t.call("POST", P(`/data-principals/${guardian}/erasure`), eraseKey)).status,

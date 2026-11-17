@@ -4,6 +4,7 @@ import { conflict, notFound, unprocessable } from "../domain/errors.ts";
 import { assertTenantAccess } from "../domain/permissions.ts";
 import { consentsRepository } from "../repositories/consents.repository.ts";
 import { dataPrincipalsRepository } from "../repositories/data-principals.repository.ts";
+import { guardiansRepository } from "../repositories/guardians.repository.ts";
 import { nominationsRepository } from "../repositories/nominations.repository.ts";
 import { auditService } from "./audit.service.ts";
 
@@ -13,6 +14,8 @@ export type CreateDataPrincipalInput = {
   phone?: string;
   isChild: boolean;
   guardianId?: string;
+  /** Adults only: a lawful guardian of a person with disability (r.11). Children: always parent. */
+  guardianKind?: "parent" | "lawful_guardian";
 };
 
 /**
@@ -22,11 +25,25 @@ export type CreateDataPrincipalInput = {
 export const dataPrincipalsService = {
   create(ctx: TenantContext, input: CreateDataPrincipalInput) {
     assertTenantAccess(ctx, "data.write", ["consents:write"]);
-    if (input.isChild !== Boolean(input.guardianId)) {
+    if (input.isChild && !input.guardianId)
+      throw unprocessable("A child needs a guardianId (parent, s.9)");
+    if (
+      !input.isChild &&
+      input.guardianId &&
+      input.guardianKind !== "lawful_guardian"
+    ) {
       throw unprocessable(
-        "guardianId is required for a child and not allowed for an adult",
+        "An adult can only have a lawful guardian (guardianKind: lawful_guardian, r.11)",
       );
     }
+    if (input.isChild && input.guardianKind === "lawful_guardian") {
+      throw unprocessable("A child's guardian is recorded as parent");
+    }
+    const guardianKind = input.guardianId
+      ? input.isChild
+        ? ("parent" as const)
+        : ("lawful_guardian" as const)
+      : null;
 
     return db.transaction(async (tx) => {
       if (input.guardianId) {
@@ -45,6 +62,7 @@ export const dataPrincipalsService = {
       }
       const principal = await dataPrincipalsRepository.insert(tx, {
         ...input,
+        guardianKind,
         orgId: ctx.orgId,
       });
       await auditService.record(tx, ctx.actor, {
@@ -57,6 +75,7 @@ export const dataPrincipalsService = {
         payload: {
           isChild: principal.isChild,
           guardianId: principal.guardianId,
+          guardianKind,
         },
       });
       return principal;
@@ -110,7 +129,14 @@ export async function eraseInTx(tx: Tx, ctx: TenantContext, id: string) {
   // so this fresh snapshot also sees (and clears) that withdraw's free-text reason.
   await consentsRepository.clearReasons(tx, ctx.orgId, id);
   // Nominees (s.14) were named by this principal: revoke and clear their details too.
-  const nominationsRevoked = await nominationsRepository.revokeAndClearForPrincipal(tx, ctx.orgId, id, now);
+  await guardiansRepository.revokeAndClearFor(tx, ctx.orgId, id, now);
+  const nominationsRevoked =
+    await nominationsRepository.revokeAndClearForPrincipal(
+      tx,
+      ctx.orgId,
+      id,
+      now,
+    );
   for (const w of withdrawn) {
     await auditService.record(tx, ctx.actor, {
       orgId: ctx.orgId,

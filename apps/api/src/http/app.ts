@@ -11,6 +11,7 @@ import { aiRoutes } from "./routes/ai.routes.ts";
 import { apiKeysRoutes } from "./routes/api-keys.routes.ts";
 import { breachRoutes } from "./routes/breach.routes.ts";
 import { complianceRoutes } from "./routes/compliance.routes.ts";
+import { guardiansRoutes } from "./routes/guardians.routes.ts";
 import { jobsRoutes } from "./routes/jobs.routes.ts";
 import { noticesRoutes, publicNoticesRoutes } from "./routes/notices.routes.ts";
 import { assetsRoutes } from "./routes/assets.routes.ts";
@@ -106,6 +107,7 @@ const routes = base
   .route("/orgs", breachRoutes)
   .route("/orgs", complianceRoutes)
   .route("/orgs", noticesRoutes)
+  .route("/orgs", guardiansRoutes)
   .route("/public", publicNoticesRoutes)
   .route("/public", publicRightsRoutes)
   .route("/integrations", rightsIntegrationRoutes)
