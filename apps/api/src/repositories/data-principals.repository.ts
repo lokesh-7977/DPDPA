@@ -19,6 +19,16 @@ export const dataPrincipalsRepository = {
     return row!;
   },
 
+  /** Correction / updating of contact details (s.12(2)). */
+  async updateContact(ex: Executor, orgId: string, id: string, patch: { email?: string | null; phone?: string | null }) {
+    const [row] = await ex
+      .update(dataPrincipals)
+      .set(patch)
+      .where(and(eq(dataPrincipals.orgId, orgId), eq(dataPrincipals.id, id)))
+      .returning();
+    return row!;
+  },
+
   /** Null out PII and mark erased. The row stays for referential integrity. */
   async erasePii(ex: Executor, orgId: string, id: string, at: Date) {
     const [row] = await ex

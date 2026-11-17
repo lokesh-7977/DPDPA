@@ -99,6 +99,13 @@
       "when": 1794925858063,
       "tag": "0013_rights_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794926550506,
+      "tag": "0014_rights_part2",
+      "breakpoints": true
     }
   ]
 }

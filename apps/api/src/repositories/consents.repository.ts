@@ -1,5 +1,5 @@
 import { and, desc, eq, isNotNull, lt, ne, type SQL } from "drizzle-orm";
-import { consents, dataPrincipals, type Executor } from "../db/index.ts";
+import { consents, dataPrincipals, processingActivities, purposes, type Executor } from "../db/index.ts";
 
 export type NewConsent = typeof consents.$inferInsert;
 export type ConsentFilter = {
@@ -15,6 +15,29 @@ export const consentsRepository = {
   async insert(ex: Executor, values: NewConsent & { orgId: string }) {
     const [row] = await ex.insert(consents).values(values).returning();
     return row!;
+  },
+
+  /** All consents of a principal with their purpose and ROPA activity (access requests, s.11). */
+  forPrincipalWithPurposes(ex: Executor, orgId: string, principalId: string) {
+    return ex
+      .select({
+        purposeCode: purposes.code,
+        purposeName: purposes.name,
+        purposeDescription: purposes.description,
+        dataCategories: purposes.dataCategories,
+        legalBasis: purposes.legalBasis,
+        activityId: purposes.processingActivityId,
+        activityName: processingActivities.name,
+        grantedAt: consents.grantedAt,
+        withdrawnAt: consents.withdrawnAt,
+        expiresAt: consents.expiresAt,
+        noticeVersion: consents.noticeVersion,
+      })
+      .from(consents)
+      .innerJoin(purposes, eq(consents.purposeId, purposes.id))
+      .leftJoin(processingActivities, eq(purposes.processingActivityId, processingActivities.id))
+      .where(and(eq(consents.orgId, orgId), eq(consents.principalId, principalId)))
+      .orderBy(desc(consents.grantedAt));
   },
 
   /** Lock the consent row and load its principal. */

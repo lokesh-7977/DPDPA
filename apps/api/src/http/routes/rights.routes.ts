@@ -17,7 +17,15 @@ import {
 } from "../openapi.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
 import {
+  AccessPackSchema,
   AssignSchema,
+  CorrectionResultSchema,
+  CorrectionSchema,
+  NominationInputSchema,
+  NominationParams,
+  NominationSchema,
+  NominationPrincipalParams,
+  toNominationDto,
   LinkPrincipalSchema,
   ListRightsQuery,
   NoteSchema,
@@ -285,6 +293,83 @@ const eraseRoute = createRoute({
   },
 });
 
+const accessPackRoute = createRoute({
+  ...base,
+  method: "post",
+  path: `${P}/{requestId}/access-pack`,
+  summary:
+    "Access request (s.11): build the summary of personal data, processing and recipients as a file",
+  request: { params: RightsParams },
+  responses: {
+    200: json(AccessPackSchema, "Prepared"),
+    404: notFound,
+    409: conflict,
+    422: unprocessable,
+    ...errors,
+  },
+});
+const correctionRoute = createRoute({
+  ...base,
+  method: "post",
+  path: `${P}/{requestId}/correction`,
+  summary:
+    "Correction request (s.12(2)): update the linked principal's contact details",
+  request: {
+    params: RightsParams,
+    body: jsonBody(CorrectionSchema, "New values"),
+  },
+  responses: {
+    200: json(CorrectionResultSchema, "Corrected"),
+    404: notFound,
+    409: conflict,
+    422: unprocessable,
+    ...errors,
+  },
+});
+const nominationRoute = createRoute({
+  ...base,
+  method: "post",
+  path: `${P}/{requestId}/nominations`,
+  summary:
+    "Nomination request (s.14, r.14(4)): record a nominee for the linked principal",
+  request: {
+    params: RightsParams,
+    body: jsonBody(NominationInputSchema, "Nominee"),
+  },
+  responses: {
+    201: json(NominationSchema, "Recorded"),
+    404: notFound,
+    409: conflict,
+    422: unprocessable,
+    ...errors,
+  },
+});
+const listNominationsRoute = createRoute({
+  ...base,
+  method: "get",
+  path: "/{orgId}/data-principals/{principalId}/nominations",
+  summary: "Nominees of a Data Principal",
+  request: { params: NominationPrincipalParams },
+  responses: {
+    200: json(z.array(NominationSchema), "Nominations"),
+    404: notFound,
+    ...errors,
+  },
+});
+const revokeNominationRoute = createRoute({
+  ...base,
+  method: "post",
+  path: "/{orgId}/nominations/{nominationId}/revoke",
+  summary: "Revoke a nomination",
+  request: { params: NominationParams },
+  responses: {
+    200: json(NominationSchema, "Revoked"),
+    404: notFound,
+    409: conflict,
+    ...errors,
+  },
+});
+
 const id = (c: { req: { valid(t: "param"): { requestId: string } } }) =>
   c.req.valid("param").requestId;
 
@@ -377,4 +462,51 @@ export const rightsRoutes = createRouter()
   )
   .openapi(eraseRoute, async (c) =>
     c.json(await rightsService.executeErasure(orgContext(c), id(c)), 200),
+  )
+  .openapi(accessPackRoute, async (c) =>
+    c.json(await rightsService.prepareAccessPack(orgContext(c), id(c)), 200),
+  )
+  .openapi(correctionRoute, async (c) =>
+    c.json(
+      await rightsService.applyCorrection(
+        orgContext(c),
+        id(c),
+        c.req.valid("json"),
+      ),
+      200,
+    ),
+  )
+  .openapi(nominationRoute, async (c) =>
+    c.json(
+      toNominationDto(
+        await rightsService.addNomination(
+          orgContext(c),
+          id(c),
+          c.req.valid("json"),
+        ),
+      ),
+      201,
+    ),
+  )
+  .openapi(listNominationsRoute, async (c) =>
+    c.json(
+      (
+        await rightsService.listNominations(
+          orgContext(c),
+          c.req.valid("param").principalId,
+        )
+      ).map(toNominationDto),
+      200,
+    ),
+  )
+  .openapi(revokeNominationRoute, async (c) =>
+    c.json(
+      toNominationDto(
+        await rightsService.revokeNomination(
+          orgContext(c),
+          c.req.valid("param").nominationId,
+        ),
+      ),
+      200,
+    ),
   );

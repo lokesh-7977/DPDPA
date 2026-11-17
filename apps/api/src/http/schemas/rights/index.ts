@@ -1,5 +1,6 @@
 import { z } from "@hono/zod-openapi";
 import type {
+  Nomination,
   RightsRequest,
   RightsRequestEvent,
 } from "../../../db/schemas/index.ts";
@@ -100,6 +101,7 @@ export const RightsRequestSchema = z
     overdue: z.boolean(),
     assigneeUserId: z.uuid().nullable(),
     responseText: z.string().nullable(),
+    responseArtifactId: z.uuid().nullable(),
     closedAt: z.iso.datetime().nullable(),
     createdAt: z.iso.datetime(),
   })
@@ -170,6 +172,7 @@ export const toRightsDto = (r: RightsRequest & { overdue: boolean }) => ({
   overdue: r.overdue,
   assigneeUserId: r.assigneeUserId,
   responseText: r.responseText,
+  responseArtifactId: r.responseArtifactId,
   closedAt: iso(r.closedAt),
   createdAt: r.createdAt.toISOString(),
 });
@@ -181,4 +184,73 @@ export const toRightsEventDto = (e: RightsRequestEvent) => ({
   actorId: e.actorId,
   note: e.note,
   createdAt: e.createdAt.toISOString(),
+});
+
+// ─── Part 2 ──────────────────────────────────────────────────────────────────
+
+export const AccessPackSchema = z
+  .object({ artifactId: z.uuid(), pack: z.record(z.string(), z.unknown()) })
+  .openapi("RightsAccessPack");
+
+const Phone = z
+  .string()
+  .trim()
+  .regex(/^\+?[0-9 ()-]{6,20}$/, "phone number");
+
+/** s.12(2): new values for the principal's contact details (null clears). */
+export const CorrectionSchema = z
+  .object({ email: z.email().max(254).nullable(), phone: Phone.nullable() })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Nothing to correct")
+  .openapi("RightsCorrection");
+export const CorrectionResultSchema = z
+  .object({ fields: z.array(z.string()) })
+  .openapi("RightsCorrectionResult");
+
+export const NominationInputSchema = z
+  .object({
+    nomineeName: Plain(200),
+    nomineeEmail: z.email().max(254).nullable().optional(),
+    nomineePhone: Phone.nullable().optional(),
+    relationship: Plain(100).nullable().optional(),
+  })
+  .openapi("NominationInput");
+
+export const NominationSchema = z
+  .object({
+    id: z.uuid(),
+    principalId: z.uuid(),
+    requestId: z.uuid().nullable(),
+    nomineeName: z.string().nullable(),
+    nomineeEmail: z.string().nullable(),
+    nomineePhone: z.string().nullable(),
+    relationship: z.string().nullable(),
+    status: z.enum(["active", "revoked"]),
+    revokedAt: z.iso.datetime().nullable(),
+    createdAt: z.iso.datetime(),
+  })
+  .openapi("Nomination");
+
+export const NominationPrincipalParams = z.object({
+  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
+  principalId: z.uuid().openapi({ param: { name: "principalId", in: "path" } }),
+});
+export const NominationParams = z.object({
+  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
+  nominationId: z
+    .uuid()
+    .openapi({ param: { name: "nominationId", in: "path" } }),
+});
+
+export const toNominationDto = (n: Nomination) => ({
+  id: n.id,
+  principalId: n.principalId,
+  requestId: n.requestId,
+  nomineeName: n.nomineeName,
+  nomineeEmail: n.nomineeEmail,
+  nomineePhone: n.nomineePhone,
+  relationship: n.relationship,
+  status: n.status,
+  revokedAt: iso(n.revokedAt),
+  createdAt: n.createdAt.toISOString(),
 });
