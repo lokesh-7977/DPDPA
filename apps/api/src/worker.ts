@@ -1,0 +1,19 @@
+import { env } from "./config/env.ts";
+import { logger } from "./config/logger.ts";
+import { closeDb } from "./db/index.ts";
+import { startRunner } from "./jobs/runner.ts";
+
+/**
+ * Background worker: a separate process from the API (`pnpm --filter api worker`).
+ * Runs queued jobs (exports, daily reminders). Several workers can run at once.
+ */
+const controller = new AbortController();
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.once(sig, () => {
+    logger.info({ signal: sig }, "Worker shutting down after the current job");
+    controller.abort();
+  });
+}
+
+await startRunner({ pollMs: env.WORKER_POLL_MS, batch: env.WORKER_BATCH, signal: controller.signal });
+await closeDb();
