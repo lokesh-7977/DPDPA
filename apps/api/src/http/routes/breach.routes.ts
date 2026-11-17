@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import type { BreachAction } from "../../domain/breach.ts";
+import { breachNoticesService } from "../../services/breach-notices.service.ts";
 import { breachService } from "../../services/breach.service.ts";
 import { orgContext } from "../context.ts";
 import { authenticateUser, orgAccess } from "../middleware/user-auth.ts";
@@ -27,7 +28,17 @@ import {
   toBreachDto,
   toBreachEventDto,
   UpdateBreachSchema,
+  AddedPrincipalsSchema,
+  AddPrincipalsSchema,
+  AffectedListSchema,
+  ApproveNoticeSchema,
+  EvidenceQuery,
+  EvidenceSchema,
+  NoticeQueuedSchema,
+  PrincipalNoticeDraftSchema,
+  toEvidenceDto,
 } from "../schemas/breach/index.ts";
+import { ArtifactSchema, toArtifactDto } from "../schemas/jobs/index.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
 
 /** DPDPA s.8(6), DPDP Rules r.7 — personal data breach management. */
@@ -183,6 +194,114 @@ const reopenRoute = reasonRoute("reopen", "Reopen (DPO / admin, reason)");
 type Ctx = { req: { valid(t: "param"): { breachId: string } } };
 const id = (c: Ctx) => c.req.valid("param").breachId;
 
+// ─── Part 2: affected Data Principals (r.7(1)), evidence ─────────────────────
+
+const addAffectedRoute = createRoute({
+  ...base,
+  method: "post",
+  path: `${P}/{breachId}/affected-principals`,
+  summary:
+    "Link affected Data Principals (if the notice is approved, they are notified too)",
+  request: {
+    params: BreachParams,
+    body: jsonBody(AddPrincipalsSchema, "Principals"),
+  },
+  responses: {
+    200: json(AddedPrincipalsSchema, "Added"),
+    404: notFound,
+    409: conflict,
+    422: unprocessable,
+    ...errors,
+  },
+});
+const listAffectedRoute = createRoute({
+  ...base,
+  method: "get",
+  path: `${P}/{breachId}/affected-principals`,
+  summary:
+    "Affected Data Principals and whether the r.7(1) notice reached them",
+  request: { params: BreachParams },
+  responses: {
+    200: json(AffectedListSchema, "Affected"),
+    404: notFound,
+    ...errors,
+  },
+});
+const noticeDraftRoute = createRoute({
+  ...base,
+  method: "get",
+  path: `${P}/{breachId}/principal-notice/draft`,
+  summary:
+    "Draft notice to affected Data Principals (r.7(1)(a)-(e)); the approved text once approved",
+  request: { params: BreachParams },
+  responses: {
+    200: json(PrincipalNoticeDraftSchema, "Draft"),
+    404: notFound,
+    ...errors,
+  },
+});
+const approveNoticeRoute = createRoute({
+  ...base,
+  method: "post",
+  path: `${P}/{breachId}/principal-notice`,
+  summary:
+    "Approve the notice text and send it to every affected Data Principal (DPO / admin)",
+  request: {
+    params: BreachParams,
+    body: jsonBody(ApproveNoticeSchema, "Notice"),
+  },
+  responses: {
+    202: json(NoticeQueuedSchema, "Queued"),
+    404: notFound,
+    409: conflict,
+    422: unprocessable,
+    ...errors,
+  },
+});
+const addEvidenceRoute = createRoute({
+  ...base,
+  method: "post",
+  path: `${P}/{breachId}/evidence`,
+  summary:
+    "Upload an evidence file (raw body; PDF, PNG, JPEG, text, CSV, JSON; max 10 MB)",
+  request: {
+    params: BreachParams,
+    query: EvidenceQuery,
+    body: {
+      content: {
+        "application/octet-stream": {
+          schema: z.string().openapi({ format: "binary" }),
+        },
+      },
+      description: "File bytes; set Content-Type to the file's type",
+    },
+  },
+  responses: {
+    201: json(
+      z.object({ evidence: EvidenceSchema, artifact: ArtifactSchema }),
+      "Stored",
+    ),
+    404: notFound,
+    413: json(ErrorSchema, "Over 10 MB"),
+    422: unprocessable,
+    ...errors,
+  },
+});
+const listEvidenceRoute = createRoute({
+  ...base,
+  method: "get",
+  path: `${P}/{breachId}/evidence`,
+  summary: "Evidence files (download via /orgs/{orgId}/artifacts/{artifactId})",
+  request: { params: BreachParams },
+  responses: {
+    200: json(z.array(EvidenceSchema), "Evidence"),
+    404: notFound,
+    ...errors,
+  },
+});
+
+const iso = (d: Date | null) => d?.toISOString() ?? null;
+
 export const breachRoutes = createRouter()
   .openapi(listRoute, async (c) =>
     c.json(
@@ -293,6 +412,67 @@ export const breachRoutes = createRouter()
           "reopen",
           c.req.valid("json").reason,
         ),
+      ),
+      200,
+    ),
+  )
+  .openapi(addAffectedRoute, async (c) =>
+    c.json(
+      await breachNoticesService.addAffected(
+        orgContext(c),
+        id(c),
+        c.req.valid("json").principalIds,
+      ),
+      200,
+    ),
+  )
+  .openapi(listAffectedRoute, async (c) => {
+    const r = await breachNoticesService.listAffected(orgContext(c), id(c));
+    return c.json(
+      {
+        principals: r.principals.map((p) => ({
+          principalId: p.principalId,
+          noticeStatus: p.noticeStatus,
+          notifiedAt: iso(p.notifiedAt),
+        })),
+        counts: r.counts,
+      },
+      200,
+    );
+  })
+  .openapi(noticeDraftRoute, async (c) =>
+    c.json(await breachNoticesService.draftNotice(orgContext(c), id(c)), 200),
+  )
+  .openapi(approveNoticeRoute, async (c) =>
+    c.json(
+      await breachNoticesService.approveAndSend(
+        orgContext(c),
+        id(c),
+        c.req.valid("json"),
+      ),
+      202,
+    ),
+  )
+  .openapi(addEvidenceRoute, async (c) => {
+    const q = c.req.valid("query");
+    const r = await breachNoticesService.addEvidence(orgContext(c), id(c), {
+      body: new Uint8Array(await c.req.arrayBuffer()),
+      contentType: c.req.header("content-type") ?? "",
+      fileName: q.fileName,
+      description: q.description?.trim() || null,
+    });
+    return c.json(
+      {
+        evidence: toEvidenceDto(r.evidence),
+        artifact: toArtifactDto(r.artifact),
+      },
+      201,
+    );
+  })
+  .openapi(listEvidenceRoute, async (c) =>
+    c.json(
+      (await breachNoticesService.listEvidence(orgContext(c), id(c))).map(
+        toEvidenceDto,
       ),
       200,
     ),

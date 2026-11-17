@@ -118,7 +118,7 @@ Detailed plans for finished/started phases live next to this file in `docs/plans
 | 6 | Scoring (`domain/scoring.ts` pure), assessments, PDF reports, evidence (DPDPA + AIGIS controls) | ❌ |
 | 7 | Managed HoundDog via GitHub App reusing SARIF ingest path | ❌ |
 | 8a | Rights requests: public portal + email verification, API (`rights:submit`) + staff intake, deadlines (r.14(3)), assignment, history, emails, erasure, access summary pack (s.11), correction (s.12(2)), nominations (s.14, r.14(4)), deadline digest | ✅ |
-| 8b | Breach management: register, severity, timeline, Board initial intimation + 72 h detailed report (drafts, recorded notices, extensions), hourly alerts | 🟡 part 1 ✅; part 2: notices to affected Data Principals (r.7(1)), evidence uploads |
+| 8b | Breach management: register, severity, timeline, Board initial intimation + 72 h detailed report (drafts, recorded notices, extensions), hourly alerts, notices to affected Data Principals (r.7(1)), evidence uploads | ✅ |
 | 8c | Notice builder (22 languages), consent widget / cookie banner, parental consent | ❌ |
 | 8d | Vendor (processor) assessments + cross-border transfer register | ❌ |
 | 8e | Retention schedules + erasure jobs | ❌ |

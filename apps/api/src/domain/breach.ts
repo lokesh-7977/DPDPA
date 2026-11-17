@@ -149,7 +149,7 @@ export function draftBoardInitial(b: BreachFacts, f: Fiduciary): string {
 export function draftBoardReport(
   b: BreachFacts,
   f: Fiduciary,
-  intimations: { notified: number; noContact: number },
+  intimations: Intimations,
 ): string {
   return [
     `Report on personal data breach under rule 7(2)(b), Digital Personal Data Protection Rules, 2025`,
@@ -162,8 +162,103 @@ export function draftBoardReport(
     `(iii) Measures implemented or proposed to mitigate risk: ${orDash(b.mitigation)}`,
     `(iv) Findings regarding the person who caused the breach: ${orDash(b.personFindings)}`,
     `(v) Remedial measures to prevent recurrence: ${orDash(b.remedialMeasures)}`,
-    `(vi) Intimations to affected Data Principals: ${intimations.notified} notified${intimations.noContact ? `, ${intimations.noContact} without registered contact` : ""}`,
+    `(vi) Intimations to affected Data Principals: ${describeIntimations(intimations)}`,
     "",
     `Contact: ${orDash(f.contact)}`,
   ].join("\n");
+}
+
+// ─── r.7(1): notice to affected Data Principals ──────────────────────────────
+
+export type Intimations = {
+  notified: number;
+  noContact: number;
+  failed?: number;
+  pending?: number;
+};
+
+export function describeIntimations(i: Intimations): string {
+  const parts = [`${i.notified} notified`];
+  if (i.noContact) parts.push(`${i.noContact} without registered contact`);
+  if (i.failed) parts.push(`${i.failed} delivery failed`);
+  if (i.pending) parts.push(`${i.pending} pending`);
+  return parts.join(", ");
+}
+
+/**
+ * r.7(1)(a)-(e): description (nature, extent, timing), consequences relevant to her,
+ * mitigation measures, safety steps she may take, and a contact who can respond.
+ * Plain language, no internal details.
+ */
+export function draftPrincipalNotice(
+  b: BreachFacts & {
+    consequencesForPrincipals: string | null;
+    safetyStepsForPrincipals: string | null;
+  },
+  f: Fiduciary,
+): { subject: string; body: string } {
+  return {
+    subject: `Important: a security incident at ${f.name} involving your personal data`,
+    body: [
+      `We are writing to tell you about a security incident at ${f.name} that involved your personal data.`,
+      "",
+      `What happened: ${b.title}. ${orDash(b.nature)}${b.occurredAt ? ` It happened around ${when(b.occurredAt)}.` : ""}`,
+      `What data was involved: ${b.dataCategories.length ? b.dataCategories.join(", ") : "To be confirmed"}.`,
+      `What this may mean for you: ${orDash(b.consequencesForPrincipals)}`,
+      `What we have done and are doing: ${orDash(b.mitigation)}`,
+      `What you can do to protect yourself: ${orDash(b.safetyStepsForPrincipals)}`,
+      "",
+      `Questions: ${orDash(f.contact)}`,
+    ].join("\n"),
+  };
+}
+
+// ─── Evidence files ──────────────────────────────────────────────────────────
+
+export const EVIDENCE_MAX_BYTES = 10 * 1024 * 1024;
+/** Types that are evidence, not active content (no HTML/SVG: never rendered inline). */
+export const EVIDENCE_TYPES: Record<string, string> = {
+  "application/pdf": "pdf",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "text/plain": "txt",
+  "text/csv": "csv",
+  "application/json": "json",
+};
+
+/** Safe display name: letters, digits, dot, dash, underscore; max 120 chars. */
+export function safeFileName(name: string, ext: string): string {
+  const base =
+    name
+      .replace(/\.[^.]*$/, "")
+      .replace(/[^A-Za-z0-9_-]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 100) || "evidence";
+  return `${base}.${ext}`;
+}
+
+/** Binary types must start with their signature (a mislabelled file is rejected). */
+export function matchesDeclaredType(
+  bytes: Uint8Array,
+  contentType: string,
+): boolean {
+  const starts = (...sig: number[]) => sig.every((b, i) => bytes[i] === b);
+  switch (contentType) {
+    case "application/pdf":
+      return starts(0x25, 0x50, 0x44, 0x46); // %PDF
+    case "image/png":
+      return starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+    case "image/jpeg":
+      return starts(0xff, 0xd8, 0xff);
+    default: {
+      // Text types: valid UTF-8 without NUL bytes.
+      if (bytes.includes(0)) return false;
+      try {
+        new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
 }

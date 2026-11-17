@@ -1,6 +1,7 @@
 import { z } from "@hono/zod-openapi";
 import type {
   Breach,
+  BreachEvidence,
   BreachBoardNotice,
   BreachEvent,
 } from "../../../db/schemas/index.ts";
@@ -233,4 +234,71 @@ export const toBoardNoticeDto = (n: BreachBoardNotice) => ({
   boardReference: n.boardReference,
   sentAt: n.sentAt.toISOString(),
   sentBy: n.sentBy,
+});
+
+// ─── Part 2: affected Data Principals (r.7(1)), evidence ─────────────────────
+
+export const AddPrincipalsSchema = z
+  .object({ principalIds: z.array(z.uuid()).min(1).max(1000) })
+  .openapi("AddAffectedPrincipals");
+
+export const NoticeCountsSchema = z
+  .object({
+    notified: z.number().int(),
+    noContact: z.number().int(),
+    failed: z.number().int(),
+    pending: z.number().int(),
+  })
+  .openapi("BreachNoticeCounts");
+
+export const AddedPrincipalsSchema = z
+  .object({ added: z.number().int(), counts: NoticeCountsSchema })
+  .openapi("AffectedPrincipalsAdded");
+
+export const AffectedListSchema = z
+  .object({
+    principals: z.array(
+      z.object({
+        principalId: z.uuid(),
+        noticeStatus: z.enum(["pending", "sent", "no_contact", "failed"]),
+        notifiedAt: z.iso.datetime().nullable(),
+      }),
+    ),
+    counts: NoticeCountsSchema,
+  })
+  .openapi("AffectedPrincipals");
+
+export const PrincipalNoticeDraftSchema = z
+  .object({ subject: z.string(), body: z.string(), approved: z.boolean() })
+  .openapi("PrincipalNoticeDraft");
+
+export const ApproveNoticeSchema = z
+  .object({ subject: Plain(200), body: Prose(20000) })
+  .openapi("ApprovePrincipalNotice");
+
+export const NoticeQueuedSchema = z
+  .object({ queued: z.number().int(), counts: NoticeCountsSchema })
+  .openapi("PrincipalNoticeQueued");
+
+export const EvidenceQuery = z.object({
+  fileName: z.string().min(1).max(200),
+  description: z.string().max(1000).optional(),
+});
+
+export const EvidenceSchema = z
+  .object({
+    id: z.uuid(),
+    artifactId: z.uuid(),
+    description: z.string().nullable(),
+    addedBy: z.uuid().nullable(),
+    createdAt: z.iso.datetime(),
+  })
+  .openapi("BreachEvidence");
+
+export const toEvidenceDto = (e: BreachEvidence) => ({
+  id: e.id,
+  artifactId: e.artifactId,
+  description: e.description,
+  addedBy: e.addedBy,
+  createdAt: e.createdAt.toISOString(),
 });

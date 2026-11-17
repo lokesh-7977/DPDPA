@@ -1,7 +1,22 @@
-import { boolean, foreignKey, index, integer, pgEnum, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  foreignKey,
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { breachSeverities, breachStatuses } from "../../../domain/breach.ts";
 import { createdAt, updatedAt } from "../_shared/index.ts";
+import { artifacts } from "../artifacts/index.ts";
 import { organizations, users } from "../auth/index.ts";
+import { dataPrincipals } from "../consent/index.ts";
 
 /**
  * Personal data breaches (DPDPA s.8(6), DPDP Rules r.7). Tenant data.
@@ -46,6 +61,11 @@ export const breaches = pgTable(
     boardExtendedUntil: timestamp("board_extended_until", { withTimezone: true }),
     boardReportDueAt: timestamp("board_report_due_at", { withTimezone: true }).notNull(),
     boardReportSentAt: timestamp("board_report_sent_at", { withTimezone: true }),
+    /** r.7(1) notice to affected Data Principals: approved text, fixed once sending starts. */
+    principalNoticeSubject: text("principal_notice_subject"),
+    principalNoticeBody: text("principal_notice_body"),
+    principalNoticeApprovedAt: timestamp("principal_notice_approved_at", { withTimezone: true }),
+    principalNoticeApprovedBy: uuid("principal_notice_approved_by").references(() => users.id),
     /** Deadline alert stages already emailed (24h, 6h, overdue). */
     alertedStages: text("alerted_stages").array().notNull().default([]),
     statusReason: text("status_reason"),
@@ -108,6 +128,57 @@ export const breachBoardNotices = pgTable(
   ],
 );
 
+/** Data Principals affected by a breach and whether the r.7(1) notice reached them. */
+export const breachNoticeStatus = pgEnum("breach_notice_status", ["pending", "sent", "no_contact", "failed"]);
+
+export const breachPrincipals = pgTable(
+  "breach_principals",
+  {
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    breachId: uuid("breach_id").notNull(),
+    principalId: uuid("principal_id").notNull(),
+    noticeStatus: breachNoticeStatus("notice_status").notNull().default("pending"),
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.breachId, t.principalId] }),
+    index("breach_principals_status_idx").on(t.breachId, t.noticeStatus),
+    foreignKey({ name: "breach_principals_breach_fk", columns: [t.orgId, t.breachId], foreignColumns: [breaches.orgId, breaches.id] }),
+    foreignKey({
+      name: "breach_principals_principal_fk",
+      columns: [t.orgId, t.principalId],
+      foreignColumns: [dataPrincipals.orgId, dataPrincipals.id],
+    }),
+  ],
+);
+
+/** Files attached as evidence (logs, screenshots, forensic reports). Bytes live in the BlobStore. */
+export const breachEvidence = pgTable(
+  "breach_evidence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    breachId: uuid("breach_id").notNull(),
+    artifactId: uuid("artifact_id")
+      .notNull()
+      .references(() => artifacts.id),
+    description: text("description"),
+    addedBy: uuid("added_by").references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("breach_evidence_breach_idx").on(t.breachId),
+    foreignKey({ name: "breach_evidence_breach_fk", columns: [t.orgId, t.breachId], foreignColumns: [breaches.orgId, breaches.id] }),
+  ],
+);
+
 export type Breach = typeof breaches.$inferSelect;
+export type BreachPrincipal = typeof breachPrincipals.$inferSelect;
+export type BreachEvidence = typeof breachEvidence.$inferSelect;
 export type BreachEvent = typeof breachEvents.$inferSelect;
 export type BreachBoardNotice = typeof breachBoardNotices.$inferSelect;
