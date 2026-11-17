@@ -13,6 +13,7 @@ export * from "./consent/index.ts";
 export * from "./dpia/index.ts";
 export * from "./findings/index.ts";
 export * from "./jobs/index.ts";
+export * from "./notices/index.ts";
 export * from "./remediation/index.ts";
 export * from "./rights/index.ts";
 export * from "./ropa/index.ts";

@@ -7,6 +7,7 @@ import {
   integer,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -15,6 +16,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { createdAt } from "../_shared/index.ts";
 import { organizations } from "../auth/index.ts";
+import { noticeVersions } from "../notices/index.ts";
 import { processingActivities } from "../ropa/index.ts";
 
 /**
@@ -102,6 +104,8 @@ export const consents = pgTable(
     status: consentStatus("status").notNull().default("granted"),
     /** Version of the notice shown to the principal (DPDPA s.5). */
     noticeVersion: text("notice_version").notNull(),
+    /** The exact published notice version shown, when the notice is managed here. */
+    noticeVersionId: uuid("notice_version_id"),
     /** Language the notice was presented in (English or an 8th Schedule language). */
     language: text("language").notNull(),
     channel: text("channel").notNull(),
@@ -121,6 +125,11 @@ export const consents = pgTable(
       columns: [t.orgId, t.purposeId],
       foreignColumns: [purposes.orgId, purposes.id],
     }),
+    foreignKey({
+      name: "consents_notice_version_fk",
+      columns: [t.orgId, t.noticeVersionId],
+      foreignColumns: [noticeVersions.orgId, noticeVersions.id],
+    }),
     index("consents_principal_idx").on(t.orgId, t.principalId),
     index("consents_purpose_idx").on(t.orgId, t.purposeId),
     // At most one live consent per principal+purpose.
@@ -128,6 +137,31 @@ export const consents = pgTable(
       .on(t.orgId, t.principalId, t.purposeId)
       .where(sql`${t.status} = 'granted'`),
     check("consents_withdrawn_ck", sql`(${t.status} = 'withdrawn') = (${t.withdrawnAt} IS NOT NULL)`),
+  ],
+);
+
+/** Purposes a notice version covers (frozen with the version). */
+export const noticeVersionPurposes = pgTable(
+  "notice_version_purposes",
+  {
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    versionId: uuid("version_id").notNull(),
+    purposeId: uuid("purpose_id").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.versionId, t.purposeId] }),
+    foreignKey({
+      name: "notice_version_purposes_version_fk",
+      columns: [t.orgId, t.versionId],
+      foreignColumns: [noticeVersions.orgId, noticeVersions.id],
+    }),
+    foreignKey({
+      name: "notice_version_purposes_purpose_fk",
+      columns: [t.orgId, t.purposeId],
+      foreignColumns: [purposes.orgId, purposes.id],
+    }),
   ],
 );
 

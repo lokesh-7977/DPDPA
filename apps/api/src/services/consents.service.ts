@@ -2,15 +2,22 @@ import { db } from "../db/index.ts";
 import type { TenantContext } from "../domain/auth.ts";
 import { conflict, notFound, unprocessable } from "../domain/errors.ts";
 import { assertTenantAccess } from "../domain/permissions.ts";
-import { consentsRepository, type ConsentFilter } from "../repositories/consents.repository.ts";
+import {
+  consentsRepository,
+  type ConsentFilter,
+} from "../repositories/consents.repository.ts";
 import { dataPrincipalsRepository } from "../repositories/data-principals.repository.ts";
 import { purposesRepository } from "../repositories/purposes.repository.ts";
 import { auditService } from "./audit.service.ts";
+import { publishedNoticeForConsent } from "./notices.service.ts";
 
 export type GrantConsentInput = {
   principalId: string;
   purposeId: string;
-  noticeVersion: string;
+  /** Free-form label (external notices); derived from noticeVersionId when that is given. */
+  noticeVersion?: string;
+  /** A notice published here: must be current, cover the purpose and exist in the language. */
+  noticeVersionId?: string;
   language: string;
   channel: string;
   expiresAt?: Date;
@@ -25,26 +32,70 @@ export const consentsService = {
     return db.transaction(async (tx) => {
       // Row lock: a concurrent erasure must either finish first (we then see
       // erasedAt) or wait for this grant (erasure then withdraws it).
-      const principal = await dataPrincipalsRepository.findById(tx, ctx.orgId, input.principalId, {
-        forUpdate: true,
-      });
+      const principal = await dataPrincipalsRepository.findById(
+        tx,
+        ctx.orgId,
+        input.principalId,
+        {
+          forUpdate: true,
+        },
+      );
       if (!principal) throw notFound("Principal not found");
       if (principal.erasedAt) throw unprocessable("Principal erased");
       if (principal.guardianId) {
         // s.9: a child's consent is the guardian's; the guardian must still be active.
-        const guardian = await dataPrincipalsRepository.findById(tx, ctx.orgId, principal.guardianId, {
-          forUpdate: true,
-        });
-        if (!guardian || guardian.erasedAt) throw unprocessable("Guardian erased");
+        const guardian = await dataPrincipalsRepository.findById(
+          tx,
+          ctx.orgId,
+          principal.guardianId,
+          {
+            forUpdate: true,
+          },
+        );
+        if (!guardian || guardian.erasedAt)
+          throw unprocessable("Guardian erased");
       }
 
-      const purpose = await purposesRepository.findById(tx, ctx.orgId, input.purposeId);
+      const purpose = await purposesRepository.findById(
+        tx,
+        ctx.orgId,
+        input.purposeId,
+      );
       if (!purpose) throw notFound("Purpose not found");
       if (!purpose.active) throw unprocessable("Purpose inactive");
-      if (purpose.legalBasis !== "consent") throw unprocessable("Purpose is not consent-based");
+      if (purpose.legalBasis !== "consent")
+        throw unprocessable("Purpose is not consent-based");
+
+      let noticeVersion = input.noticeVersion;
+      if (input.noticeVersionId) {
+        // s.5 / r.3: consent is tied to the exact notice text shown, in the language shown.
+        const notice = await publishedNoticeForConsent(
+          tx,
+          ctx.orgId,
+          input.noticeVersionId,
+        );
+        if (!notice.purposeIds.includes(purpose.id))
+          throw unprocessable("The notice does not cover this purpose");
+        if (
+          !notice.languages.includes(
+            input.language.split("-")[0]!.toLowerCase(),
+          )
+        ) {
+          throw unprocessable("The notice has no text in this language");
+        }
+        if (noticeVersion && noticeVersion !== notice.label)
+          throw unprocessable(`noticeVersion must be ${notice.label}`);
+        noticeVersion = notice.label;
+      }
+      if (!noticeVersion)
+        throw unprocessable("noticeVersion or noticeVersionId is required");
 
       // consents_active_uq enforces one live consent per principal+purpose (409 via the error mapper).
-      const consent = await consentsRepository.insert(tx, { ...input, orgId: ctx.orgId });
+      const consent = await consentsRepository.insert(tx, {
+        ...input,
+        noticeVersion,
+        orgId: ctx.orgId,
+      });
       await auditService.record(tx, ctx.actor, {
         orgId: ctx.orgId,
         action: "consent.granted",
@@ -54,7 +105,8 @@ export const consentsService = {
         payload: {
           purposeId: purpose.id,
           purposeCode: purpose.code,
-          noticeVersion: input.noticeVersion,
+          noticeVersion,
+          noticeVersionId: input.noticeVersionId ?? null,
           language: input.language,
           channel: input.channel,
           expiresAt: input.expiresAt?.toISOString() ?? null,
@@ -68,11 +120,22 @@ export const consentsService = {
   withdraw(ctx: TenantContext, id: string, reason?: string) {
     assertTenantAccess(ctx, "data.write", ["consents:write"]);
     return db.transaction(async (tx) => {
-      const found = await consentsRepository.findWithPrincipalForUpdate(tx, ctx.orgId, id);
+      const found = await consentsRepository.findWithPrincipalForUpdate(
+        tx,
+        ctx.orgId,
+        id,
+      );
       if (!found) throw notFound();
-      if (found.consent.status === "withdrawn") throw conflict("Already withdrawn");
+      if (found.consent.status === "withdrawn")
+        throw conflict("Already withdrawn");
 
-      const consent = await consentsRepository.withdraw(tx, ctx.orgId, id, new Date(), reason ?? null);
+      const consent = await consentsRepository.withdraw(
+        tx,
+        ctx.orgId,
+        id,
+        new Date(),
+        reason ?? null,
+      );
       await auditService.record(tx, ctx.actor, {
         orgId: ctx.orgId,
         action: "consent.withdrawn",
@@ -80,7 +143,10 @@ export const consentsService = {
         entityId: id,
         principalId: found.principal.id,
         // Free-text reason may contain PII; it stays on the (erasable) consent row only.
-        payload: { purposeId: found.consent.purposeId, hasReason: Boolean(reason) },
+        payload: {
+          purposeId: found.consent.purposeId,
+          hasReason: Boolean(reason),
+        },
       });
       return consent;
     });

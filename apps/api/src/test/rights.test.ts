@@ -80,7 +80,7 @@ describe("public intake + email verification", () => {
     assert.equal((await t.call("POST", path, undefined, { type: "delete_all", requesterEmail: "a@x.in" })).status, 400);
     assert.equal((await t.call("POST", path, undefined, { type: "access", requesterEmail: "nope" })).status, 400);
     assert.equal(
-      (await t.call("POST", path, undefined, { type: "access", requesterEmail: "a@x.in", requesterName: "A‮B" })).status,
+      (await t.call("POST", path, undefined, { type: "access", requesterEmail: "a@x.in", requesterName: "A\u202eB" })).status,
       400,
     );
   });

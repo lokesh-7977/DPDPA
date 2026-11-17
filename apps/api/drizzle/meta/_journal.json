@@ -141,6 +141,20 @@
       "when": 1794928074226,
       "tag": "0019_compliance_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794928967229,
+      "tag": "0020_notices",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794928969094,
+      "tag": "0021_notice_guards",
+      "breakpoints": true
     }
   ]
 }

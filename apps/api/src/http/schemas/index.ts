@@ -13,6 +13,7 @@ export * from "./data-principals/index.ts";
 export * from "./dpia/index.ts";
 export * from "./findings/index.ts";
 export * from "./jobs/index.ts";
+export * from "./notices/index.ts";
 export * from "./invitations/index.ts";
 export * from "./members/index.ts";
 export * from "./organizations/index.ts";
