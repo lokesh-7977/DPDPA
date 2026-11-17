@@ -1,0 +1,105 @@
+{
+  "framework": {
+    "code": "AIGIS_BASELINE",
+    "name": "AIGIS — AI governance under DPDPA",
+    "jurisdiction": "IN"
+  },
+  "version": "2",
+  "status": "published",
+  "note": "DPDPA-only: every control applies DPDPA 2023 (and, where relevant, the draft DPDP Rules 2025) to AI systems that process personal data. No foreign frameworks. Summaries are paraphrases, not legal text.",
+  "provisions": [],
+  "controls": [
+    {
+      "code": "AI-INV-01",
+      "title": "Every AI system processing personal data is accounted for",
+      "objective": "The Data Fiduciary knows every AI system and AI processor that touches personal data, with an accountable owner, so it can meet its overall responsibility for processing by itself and its processors.",
+      "provisions": ["dpdpa:s.8(1)", "dpdpa:s.8(4)"],
+      "evidenceGuidance": "AI register entries with owner and purpose; code-scan discovery of AI integrations."
+    },
+    {
+      "code": "AI-LAWFUL-01",
+      "title": "Lawful ground for personal data used by AI",
+      "objective": "Personal data reaches an AI system only for a lawful purpose, with the Data Principal's consent or under a specific certain legitimate use, recorded in the ROPA.",
+      "provisions": ["dpdpa:s.4", "dpdpa:s.6(1)", "dpdpa:s.7"],
+      "evidenceGuidance": "AI system linked to approved ROPA activities with legal basis."
+    },
+    {
+      "code": "AI-NOTICE-01",
+      "title": "Notice covers AI processing",
+      "objective": "The notice given with the consent request itemises the personal data and the purpose for which the AI processes it.",
+      "provisions": ["dpdpa:s.5", "rules:r.3"],
+      "evidenceGuidance": "Notice text naming the AI-based purpose and the data used."
+    },
+    {
+      "code": "AI-MIN-01",
+      "title": "Only necessary personal data reaches the AI",
+      "objective": "Consent and processing are limited to personal data necessary for the specified purpose; identifiers are masked before prompts or model input where the purpose allows.",
+      "provisions": ["dpdpa:s.6(1)", "dpdpa:s.8(5)", "rules:r.6"],
+      "evidenceGuidance": "Code-scan data map for AI sinks; masking / pseudonymisation design."
+    },
+    {
+      "code": "AI-PROC-01",
+      "title": "AI vendor engaged as a Data Processor under contract",
+      "objective": "A third-party AI provider processes personal data only on the Data Fiduciary's behalf under a valid contract with security safeguards, and does not use it for its own purposes (such as training).",
+      "provisions": ["dpdpa:s.8(1)", "dpdpa:s.8(2)", "dpdpa:s.8(5)", "rules:r.6"],
+      "evidenceGuidance": "Processor contract / DPA with purpose restriction, no-training and breach-notification clauses."
+    },
+    {
+      "code": "AI-ERASE-01",
+      "title": "Personal data given to AI is erasable",
+      "objective": "Personal data sent to an AI system or vendor is erased (including by the processor) when consent is withdrawn or the purpose is served, and is not retained in training data or logs beyond that.",
+      "provisions": ["dpdpa:s.8(7)", "rules:r.8"],
+      "evidenceGuidance": "Vendor retention terms, deletion process, prompt/log retention settings."
+    },
+    {
+      "code": "AI-SEC-01",
+      "title": "Security safeguards and breach intimation for AI",
+      "objective": "AI pipelines (prompts, embeddings, model outputs, logs) are protected by reasonable security safeguards, and an AI-related personal data breach is intimated to the Board and affected Data Principals.",
+      "provisions": ["dpdpa:s.8(5)", "dpdpa:s.8(6)", "rules:r.6", "rules:r.7"],
+      "evidenceGuidance": "Access control and encryption for AI data stores; incident plan covering AI vendors."
+    },
+    {
+      "code": "AI-ACCURACY-01",
+      "title": "Accurate data for AI decisions about people",
+      "objective": "Where personal data is used by AI to make a decision that affects the Data Principal, it is complete, accurate and consistent.",
+      "provisions": ["dpdpa:s.8(3)"],
+      "evidenceGuidance": "Data quality checks and evaluation results for decision-making AI."
+    },
+    {
+      "code": "AI-REVIEW-01",
+      "title": "People can question AI decisions about them",
+      "objective": "A Data Principal affected by an AI-assisted decision can raise a grievance that a person reviews and responds to within the prescribed time, and can seek correction of the data used.",
+      "provisions": ["dpdpa:s.8(10)", "dpdpa:s.12", "dpdpa:s.13"],
+      "evidenceGuidance": "Review / escalation procedure for AI decisions; grievance records."
+    },
+    {
+      "code": "AI-RIGHTS-01",
+      "title": "Data Principal rights cover AI processing",
+      "objective": "Access requests can list the AI processing and the AI vendors personal data was shared with; correction and erasure reach data held for AI.",
+      "provisions": ["dpdpa:s.11", "dpdpa:s.12", "rules:r.14"],
+      "evidenceGuidance": "AI vendors recorded as recipients of the linked ROPA activities."
+    },
+    {
+      "code": "AI-CHILD-01",
+      "title": "Children's data and AI",
+      "objective": "AI processing of a child's personal data has verifiable parental consent, is not detrimental to the child's well-being, and never tracks, behaviourally monitors or targets advertising at children.",
+      "provisions": ["dpdpa:s.9(1)", "dpdpa:s.9(2)", "dpdpa:s.9(3)", "rules:r.10"],
+      "evidenceGuidance": "Age gating, guardian consent records, design review of AI features for children."
+    },
+    {
+      "code": "AI-XBORDER-01",
+      "title": "AI vendor location and transfers",
+      "objective": "Where the AI vendor processes personal data is known; personal data is not transferred to a country restricted by the Central Government.",
+      "provisions": ["dpdpa:s.16", "rules:r.15"],
+      "evidenceGuidance": "Vendor processing location in the recipients register."
+    },
+    {
+      "code": "AI-SDF-01",
+      "title": "DPIA and audit for AI at Significant Data Fiduciaries",
+      "objective": "A Significant Data Fiduciary covers its AI systems in its periodic Data Protection Impact Assessment and audit.",
+      "provisions": ["dpdpa:s.10", "rules:r.13"],
+      "applicability": { "sdf": true },
+      "evidenceGuidance": "Approved DPIA linked to the AI system."
+    }
+  ]
+}

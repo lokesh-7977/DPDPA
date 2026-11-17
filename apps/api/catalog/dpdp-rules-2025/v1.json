@@ -1,0 +1,23 @@
+{
+  "framework": {
+    "code": "DPDP_RULES_2025",
+    "name": "Digital Personal Data Protection Rules, 2025",
+    "jurisdiction": "IN"
+  },
+  "version": "1",
+  "status": "draft",
+  "note": "DRAFT: rule numbers, titles and commencement dates must be verified against the Gazette notification (G.S.R. 846(E), 13 Nov 2025) before publishing. Summaries are paraphrases.",
+  "provisions": [
+    { "ref": "r.3", "title": "Notice by Data Fiduciary", "summary": "Notice is understandable on its own, itemises the personal data and purposes, and links to withdrawal, rights and complaint channels." },
+    { "ref": "r.4", "title": "Consent Managers", "summary": "Registration and obligations of Consent Managers." },
+    { "ref": "r.6", "title": "Reasonable security safeguards", "summary": "Minimum safeguards including encryption/obfuscation, access control, logging and monitoring, backups, and contractual safeguards with processors." },
+    { "ref": "r.7", "title": "Personal data breach intimation", "summary": "Inform affected Data Principals without delay and the Board, with a detailed report within the prescribed time." },
+    { "ref": "r.8", "title": "Retention and erasure", "summary": "Time limits for erasure for specified classes, advance notice before erasure, and minimum retention of related logs." },
+    { "ref": "r.9", "title": "Contact information", "summary": "Prominently publish contact information of the DPO or responsible person." },
+    { "ref": "r.10", "title": "Verifiable consent for children", "summary": "Due diligence to verify that the person giving consent for a child is an identifiable adult parent." },
+    { "ref": "r.13", "title": "Additional obligations of SDFs", "summary": "Annual DPIA and audit, with significant observations reported to the Board.", "applicability": { "sdf": true } },
+    { "ref": "r.14", "title": "Rights of Data Principals", "summary": "Publish how rights can be exercised and the identifiers needed; respond within prescribed periods." },
+    { "ref": "r.15", "title": "Transfer outside India", "summary": "Conditions on making personal data available outside India." }
+  ],
+  "controls": []
+}

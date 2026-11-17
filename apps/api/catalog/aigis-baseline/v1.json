@@ -1,0 +1,23 @@
+{
+  "framework": {
+    "code": "AIGIS_BASELINE",
+    "name": "AIGIS AI governance baseline",
+    "jurisdiction": "IN"
+  },
+  "version": "1",
+  "status": "published",
+  "note": "Platform control set for AI systems. Where personal data is involved, controls map to DPDPA 2023 sections. Not a legal text.",
+  "provisions": [],
+  "controls": [
+    { "code": "AI-INV-01", "title": "AI systems are registered", "objective": "Every AI system or AI service in use has an owner, a purpose and a register entry.", "provisions": [], "evidenceGuidance": "AI register entries with owner and purpose." },
+    { "code": "AI-LAWFUL-01", "title": "Lawful basis for personal data in AI", "objective": "AI that processes personal data is covered by a ROPA activity with consent or a s.7 legitimate use.", "provisions": ["dpdpa:s.4", "dpdpa:s.7"], "evidenceGuidance": "AI system linked to approved ROPA activities." },
+    { "code": "AI-MIN-01", "title": "Minimise personal data sent to AI", "objective": "Only the personal data the purpose needs reaches the model; identifiers are masked or pseudonymised where possible.", "provisions": ["dpdpa:s.6(1)", "dpdpa:s.8(5)"], "evidenceGuidance": "Code scan data map for AI sinks; masking design." },
+    { "code": "AI-PROC-01", "title": "AI vendor under contract, no training on customer data", "objective": "Third-party AI providers act as processors under contract and do not train on the fiduciary's personal data.", "provisions": ["dpdpa:s.8(1)", "dpdpa:s.8(2)"], "evidenceGuidance": "Vendor contract / DPA with no-training clause." },
+    { "code": "AI-XBORDER-01", "title": "AI vendor location known", "objective": "Where the AI provider processes data is known and is not a restricted country.", "provisions": ["dpdpa:s.16"], "evidenceGuidance": "Vendor country in the recipients register." },
+    { "code": "AI-HUMAN-01", "title": "Human oversight of consequential AI decisions", "objective": "Decisions with significant effect on people are reviewable and overridable by a human.", "provisions": [], "evidenceGuidance": "Oversight procedure, escalation path." },
+    { "code": "AI-ACCURACY-01", "title": "Accuracy of data used for AI decisions", "objective": "Personal data used by AI to make decisions about people is complete, accurate and consistent.", "provisions": ["dpdpa:s.8(3)"], "evidenceGuidance": "Data quality checks, model evaluation results." },
+    { "code": "AI-RISK-01", "title": "Impact assessment for high-risk AI", "objective": "High-risk AI systems have an approved DPIA before deployment.", "provisions": ["dpdpa:s.10"], "evidenceGuidance": "Approved DPIA linked to the AI system." },
+    { "code": "AI-CHILD-01", "title": "No profiling or tracking of children by AI", "objective": "AI is not used for behavioural monitoring, tracking or targeted advertising directed at children.", "provisions": ["dpdpa:s.9(3)"], "evidenceGuidance": "Design review, age gating." },
+    { "code": "AI-NOTICE-01", "title": "People are told when AI processes their data", "objective": "Notices describe AI processing of personal data and its purpose.", "provisions": ["dpdpa:s.5"], "evidenceGuidance": "Notice text covering AI processing." }
+  ]
+}

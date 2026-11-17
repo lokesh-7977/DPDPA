@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git ls-files:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm check-types:*)",
+      "Bash(pnpm build:*)",
+      "Bash(pnpm audit:*)",
+      "Bash(pnpm --filter web lint:*)",
+      "Bash(pnpm --filter web check-types:*)",
+      "Bash(pnpm --filter web build:*)",
+      "Bash(pnpm --filter docs lint:*)",
+      "Bash(pnpm --filter docs check-types:*)",
+      "Bash(pnpm --filter docs build:*)",
+      "Bash(pnpm --filter @repo/ui lint:*)",
+      "Bash(pnpm --filter @repo/ui check-types:*)",
+      "Bash(pnpm --filter api lint:*)",
+      "Bash(pnpm --filter api check-types:*)",
+      "Bash(pnpm --filter api test:*)",
+      "Bash(pnpm --filter api build:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/review-gate.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

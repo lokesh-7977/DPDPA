@@ -1,3 +1,11 @@
 packages:
   - "apps/*"
   - "packages/*"
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - hono@4.13.19
+overrides:
+  # Security: transitive via next>postcss (GHSA-2v37-7h3g-55p8, GHSA-68fv-2mgg-jv7q)
+  "nanoid@<3.3.18": "^3.3.18"
+  "source-map-js@<1.2.2": "^1.2.2"

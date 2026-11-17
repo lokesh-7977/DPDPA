@@ -1,0 +1,109 @@
+{
+  "version": "2",
+  "note": "v2: AI/LLM sink findings also map to AIGIS AI controls. Maps platform detections to DPDPA controls. Code-scan findings use key code.sink.<sinkType>.",
+  "rules": [
+    {
+      "key": "code.sink.log",
+      "source": "code_scan",
+      "defaultSeverity": "medium",
+      "title": "Personal data written to logs",
+      "remediation": "Remove or mask personal data before logging; add a redaction layer to the logger.",
+      "controls": [
+        "DPDP-SEC-02",
+        "DPDP-SEC-01"
+      ]
+    },
+    {
+      "key": "code.sink.ai_llm",
+      "source": "code_scan",
+      "defaultSeverity": "high",
+      "title": "Personal data sent to an AI/LLM provider",
+      "remediation": "Minimise or pseudonymise before prompting; ensure a processor contract and record the provider (and its country) in the ROPA.",
+      "controls": [
+        "DPDP-PROC-01",
+        "DPDP-MIN-01",
+        "DPDP-XBORDER-01",
+        "AI-MIN-01",
+        "AI-PROC-01"
+      ]
+    },
+    {
+      "key": "code.sink.third_party",
+      "source": "code_scan",
+      "defaultSeverity": "medium",
+      "title": "Personal data shared with a third-party service",
+      "remediation": "Confirm a processor contract and lawful basis; record the recipient in the ROPA.",
+      "controls": [
+        "DPDP-PROC-01",
+        "DPDP-XBORDER-01",
+        "DPDP-LAWFUL-01"
+      ]
+    },
+    {
+      "key": "code.sink.analytics",
+      "source": "code_scan",
+      "defaultSeverity": "medium",
+      "title": "Personal data sent to analytics",
+      "remediation": "Collect consent before analytics; exclude child users from tracking.",
+      "controls": [
+        "DPDP-CONSENT-01",
+        "DPDP-CHILD-02",
+        "DPDP-MIN-01"
+      ]
+    },
+    {
+      "key": "code.sink.cookie_storage",
+      "source": "code_scan",
+      "defaultSeverity": "low",
+      "title": "Personal data in cookies or browser storage",
+      "remediation": "Avoid storing personal data client-side; set secure cookie flags.",
+      "controls": [
+        "DPDP-SEC-01",
+        "DPDP-CONSENT-01"
+      ]
+    },
+    {
+      "key": "code.sink.api",
+      "source": "code_scan",
+      "defaultSeverity": "low",
+      "title": "Personal data sent to an external API",
+      "remediation": "Use TLS and record the recipient.",
+      "controls": [
+        "DPDP-SEC-01",
+        "DPDP-PROC-01"
+      ]
+    },
+    {
+      "key": "code.sink.database",
+      "source": "code_scan",
+      "defaultSeverity": "info",
+      "title": "Personal data stored in a database",
+      "remediation": "Ensure encryption at rest, access control and a retention rule.",
+      "controls": [
+        "DPDP-SEC-01",
+        "DPDP-RETENTION-01"
+      ]
+    },
+    {
+      "key": "code.sink.file",
+      "source": "code_scan",
+      "defaultSeverity": "low",
+      "title": "Personal data written to files or object storage",
+      "remediation": "Encrypt, restrict access and apply retention.",
+      "controls": [
+        "DPDP-SEC-01",
+        "DPDP-RETENTION-01"
+      ]
+    },
+    {
+      "key": "code.sink.other",
+      "source": "code_scan",
+      "defaultSeverity": "low",
+      "title": "Personal data flows to an unclassified sink",
+      "remediation": "Review the flow and classify the destination.",
+      "controls": [
+        "DPDP-SEC-01"
+      ]
+    }
+  ]
+}
