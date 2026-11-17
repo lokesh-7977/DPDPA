@@ -10,6 +10,7 @@ import { createRouter } from "./openapi.ts";
 import { aiRoutes } from "./routes/ai.routes.ts";
 import { apiKeysRoutes } from "./routes/api-keys.routes.ts";
 import { breachRoutes } from "./routes/breach.routes.ts";
+import { complianceRoutes } from "./routes/compliance.routes.ts";
 import { jobsRoutes } from "./routes/jobs.routes.ts";
 import { assetsRoutes } from "./routes/assets.routes.ts";
 import { authRoutes } from "./routes/auth.routes.ts";
@@ -69,7 +70,8 @@ const largeBodyLimit = bodyLimit({
   maxSize: 10 * 1024 * 1024,
   onError: tooLarge,
 });
-const EVIDENCE_PATH = /^\/orgs\/[^/]+\/breaches\/[^/]+\/evidence$/;
+const EVIDENCE_PATH =
+  /^\/orgs\/[^/]+\/(?:breaches\/[^/]+\/evidence|compliance\/controls\/[^/]+\/[^/]+\/evidence-files)$/;
 base.use("*", (c, next) =>
   (c.req.path === "/ci/code-scans/sarif" || EVIDENCE_PATH.test(c.req.path)
     ? largeBodyLimit
@@ -101,6 +103,7 @@ const routes = base
   .route("/orgs", jobsRoutes)
   .route("/orgs", rightsRoutes)
   .route("/orgs", breachRoutes)
+  .route("/orgs", complianceRoutes)
   .route("/public", publicRightsRoutes)
   .route("/integrations", rightsIntegrationRoutes)
   .route("/catalog", catalogRoutes)

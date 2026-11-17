@@ -2,6 +2,7 @@ import type { Job, Tx } from "../db/index.ts";
 import type { Actor } from "../domain/auth.ts";
 import type { JobType } from "../domain/jobs.ts";
 import { artifactsService } from "../services/artifacts.service.ts";
+import { complianceService } from "../services/compliance.service.ts";
 import { breachNoticesService } from "../services/breach-notices.service.ts";
 import { breachService } from "../services/breach.service.ts";
 import { notificationsService } from "../services/notifications.service.ts";
@@ -50,6 +51,8 @@ export const handlers: { [T in JobType]: Handler<T> } = {
 
   "breach.notify_principals": (tx, job) =>
     breachNoticesService.sendBatch(tx, job.orgId!, job.payload.breachId),
+
+  "controls.review_digest": (tx) => complianceService.reviewDigest(tx),
 };
 
 export const isJobType = (t: string): t is JobType =>

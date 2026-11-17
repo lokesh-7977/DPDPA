@@ -124,7 +124,7 @@ Detailed plans for finished/started phases live next to this file in `docs/plans
 | 8e | Retention schedules + erasure jobs | ❌ |
 | 9a | Program setup interview → applicable controls, policies, evidence backlog | ❌ |
 | 9b | Policies: templates, AI drafts, approval, versions, employee attestation | ❌ |
-| 9c | Controls + evidence (owners, cadence, approval; not determined ≠ met) | ❌ |
+| 9c | Controls + evidence: owners, review cadence, link / note / file evidence, approval with segregation of duties, automatic checks from platform data, live status (not determined ≠ met), readiness per framework, daily owner digest | ✅ |
 | 9d | Org risk register (inherent/residual, heat map, mapped to controls) | ❌ |
 | 9e | Training + attestations, access reviews | ❌ |
 | 9f | Trust center, questionnaire answering, auditor read-only room | ❌ |

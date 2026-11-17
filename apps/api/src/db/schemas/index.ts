@@ -8,6 +8,7 @@ export * from "./assets/index.ts";
 export * from "./audit-log/index.ts";
 export * from "./auth/index.ts";
 export * from "./breach/index.ts";
+export * from "./compliance/index.ts";
 export * from "./consent/index.ts";
 export * from "./dpia/index.ts";
 export * from "./findings/index.ts";

@@ -127,6 +127,20 @@
       "when": 1794927579528,
       "tag": "0017_breach_part2",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794928072392,
+      "tag": "0018_compliance",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794928074226,
+      "tag": "0019_compliance_guards",
+      "breakpoints": true
     }
   ]
 }
