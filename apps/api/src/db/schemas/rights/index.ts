@@ -1,6 +1,7 @@
 import { foreignKey, index, pgEnum, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { rightsChannels, rightsRequestTypes, rightsStatuses, verificationMethods } from "../../../domain/rights.ts";
 import { createdAt, updatedAt } from "../_shared/index.ts";
+import { artifacts } from "../artifacts/index.ts";
 import { organizations, users } from "../auth/index.ts";
 import { dataPrincipals } from "../consent/index.ts";
 
@@ -40,6 +41,8 @@ export const rightsRequests = pgTable(
     assigneeUserId: uuid("assignee_user_id").references(() => users.id),
     /** Sent to the requester when completed / rejected. */
     responseText: text("response_text"),
+    /** Generated response file (e.g. access summary, s.11), when one was prepared. */
+    responseArtifactId: uuid("response_artifact_id").references(() => artifacts.id),
     closedAt: timestamp("closed_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -83,5 +86,45 @@ export const rightsRequestEvents = pgTable(
   ],
 );
 
+/**
+ * DPDPA s.14 / r.14(4): individuals a Data Principal nominates to exercise their rights
+ * on death or incapacity. Nominee details are personal data (cleared when revoked by erasure).
+ */
+export const nominationStatus = pgEnum("nomination_status", ["active", "revoked"]);
+
+export const nominations = pgTable(
+  "nominations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    principalId: uuid("principal_id").notNull(),
+    /** The rights request that created it. */
+    requestId: uuid("request_id"),
+    nomineeName: text("nominee_name"),
+    nomineeEmail: text("nominee_email"),
+    nomineePhone: text("nominee_phone"),
+    relationship: text("relationship"),
+    status: nominationStatus("status").notNull().default("active"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("nominations_principal_idx").on(t.orgId, t.principalId),
+    foreignKey({
+      name: "nominations_principal_fk",
+      columns: [t.orgId, t.principalId],
+      foreignColumns: [dataPrincipals.orgId, dataPrincipals.id],
+    }),
+    foreignKey({
+      name: "nominations_request_fk",
+      columns: [t.orgId, t.requestId],
+      foreignColumns: [rightsRequests.orgId, rightsRequests.id],
+    }),
+  ],
+);
+
 export type RightsRequest = typeof rightsRequests.$inferSelect;
+export type Nomination = typeof nominations.$inferSelect;
 export type RightsRequestEvent = typeof rightsRequestEvents.$inferSelect;

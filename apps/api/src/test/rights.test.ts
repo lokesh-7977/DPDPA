@@ -252,3 +252,119 @@ describe("audit", () => {
     assert.equal((await t.call("GET", P("/audit/verify"), org.adminToken)).body.valid, true);
   });
 });
+
+describe("part 2: access pack, correction, nomination", () => {
+  let principalId: string;
+  const staffRequest = async (type: string) => {
+    const r = await t.call("POST", P("/rights-requests"), editorToken, {
+      type,
+      requesterEmail: "meera@x.in",
+      requesterName: "Meera",
+      verificationNote: "Verified via logged-in account",
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    await t.call("POST", P(`/rights-requests/${r.body.id}/principal`), editorToken, { principalId });
+    return r.body.id as string;
+  };
+
+  before(async () => {
+    // ROPA activity shared with a processor, a purpose on it, and a consent.
+    const cat = await t.call("POST", P("/ropa/data-categories"), editorToken, { code: "contact", name: "Contact details", sensitivity: "contact" });
+    const rec = await t.call("POST", P("/ropa/recipients"), editorToken, { name: "MailCo", role: "processor", country: "IN" });
+    const act = await t.call("POST", P("/ropa/activities"), editorToken, {
+      code: "newsletter",
+      name: "Newsletter",
+      purpose: "Product updates",
+      dataCategoryIds: [cat.body.id],
+      recipientIds: [rec.body.id],
+    });
+    assert.equal(act.status, 201, JSON.stringify(act.body));
+    const purpose = await t.call("POST", P("/purposes"), org.adminToken, {
+      code: "newsletter.email",
+      name: "Email newsletter",
+      description: "Monthly product updates",
+      dataCategories: ["email"],
+      retentionDays: 365,
+      processingActivityId: act.body.id,
+    });
+    const p = await t.call("POST", P("/data-principals"), editorToken, { externalRef: "CUST-77", email: "meera@x.in" });
+    principalId = p.body.id;
+    const consent = await t.call("POST", P("/consents"), editorToken, {
+      principalId,
+      purposeId: purpose.body.id,
+      noticeVersion: "v1",
+      language: "en-IN",
+      channel: "web",
+    });
+    assert.equal(consent.status, 201, JSON.stringify(consent.body));
+  });
+
+  test("access pack: personal data, processing and who it was shared with (s.11)", async () => {
+    const id = await staffRequest("access");
+    assert.equal((await t.call("POST", P(`/rights-requests/${id}/access-pack`), viewerToken)).status, 403);
+    const res = await t.call("POST", P(`/rights-requests/${id}/access-pack`), editorToken);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const pack = res.body.pack;
+    assert.equal(pack.format, "dpdpa-access-summary/v1");
+    assert.equal(pack.personalData.identifier, "CUST-77");
+    assert.deepEqual(pack.processing.map((x: any) => [x.purpose, x.status]), [["Email newsletter", "active"]]);
+    assert.deepEqual(pack.sharedWith, [
+      { name: "MailCo", role: "processor", country: "IN", dataShared: ["Contact details"], forPurposes: ["Email newsletter"] },
+    ]);
+    assert.equal(pack.contact, "dpo@acme.test");
+
+    const detail = (await t.call("GET", P(`/rights-requests/${id}`), viewerToken)).body;
+    assert.equal(detail.request.responseArtifactId, res.body.artifactId);
+    const file = await t.app.request(P(`/artifacts/${res.body.artifactId}`), { headers: { Authorization: `Bearer ${viewerToken}` } });
+    assert.equal(JSON.parse(await file.text()).reference, detail.request.reference);
+    assert.equal((await t.call("GET", `/orgs/${other.orgId}/artifacts/${res.body.artifactId}`, other.adminToken)).status, 404);
+    // Wrong request type for this action.
+    assert.equal((await t.call("POST", P(`/rights-requests/${id}/correction`), editorToken, { phone: "+91 98765 43210" })).status, 409);
+  });
+
+  test("correction updates the principal; history keeps field names, not values (s.12(2))", async () => {
+    const id = await staffRequest("correction");
+    const path = P(`/rights-requests/${id}/correction`);
+    assert.equal((await t.call("POST", path, editorToken, {})).status, 400);
+    assert.equal((await t.call("POST", path, editorToken, { email: "not-an-email" })).status, 400);
+    const res = await t.call("POST", path, editorToken, { email: "meera.new@x.in", phone: "+91 98765 43210" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(res.body.fields, ["email", "phone"]);
+    const p = (await t.call("GET", P(`/data-principals/${principalId}`), editorToken)).body;
+    assert.equal(p.email, "meera.new@x.in");
+    const history = JSON.stringify((await t.call("GET", P(`/rights-requests/${id}`), viewerToken)).body.events);
+    assert.match(history, /Corrected: email, phone/);
+    assert.doesNotMatch(history, /meera\.new@x\.in|meera@x\.in|98765/);
+  });
+
+  test("nomination is recorded, listed, revoked; erasure clears nominees (s.14, r.14(4))", async () => {
+    const id = await staffRequest("nomination");
+    const path = P(`/rights-requests/${id}/nominations`);
+    assert.equal((await t.call("POST", path, editorToken, { nomineeName: "Arjun" })).status, 422, "needs a contact");
+    const n = await t.call("POST", path, editorToken, { nomineeName: "Arjun", nomineeEmail: "Arjun@x.in", relationship: "Brother" });
+    assert.equal(n.status, 201, JSON.stringify(n.body));
+    assert.equal(n.body.nomineeEmail, "arjun@x.in");
+    const second = await t.call("POST", path, editorToken, { nomineeName: "Kavya", nomineePhone: "+91 99999 00000" });
+    assert.equal(second.status, 201, "one or more nominees");
+
+    const list = P(`/data-principals/${principalId}/nominations`);
+    assert.equal((await t.call("GET", list, viewerToken)).body.length, 2);
+    assert.equal((await t.call("GET", `/orgs/${other.orgId}/data-principals/${principalId}/nominations`, other.adminToken)).status, 404);
+    assert.equal((await t.call("POST", P(`/nominations/${n.body.id}/revoke`), viewerToken)).status, 403);
+    assert.equal((await t.call("POST", P(`/nominations/${n.body.id}/revoke`), editorToken)).body.status, "revoked");
+    assert.equal((await t.call("POST", P(`/nominations/${n.body.id}/revoke`), editorToken)).status, 409);
+
+    // Erasing the principal revokes the rest and clears nominee details.
+    assert.equal((await t.call("POST", P(`/data-principals/${principalId}/erasure`), dpoToken)).status, 200);
+    const after = (await t.call("GET", list, viewerToken)).body;
+    assert.ok(after.every((x: any) => x.status === "revoked" && x.nomineeName === null && x.nomineeEmail === null));
+    // Erased principal: further correction / nomination refused.
+    assert.equal((await t.call("POST", path, editorToken, { nomineeName: "Z", nomineeEmail: "z@x.in" })).status, 409);
+  });
+
+  test("no requester, nominee or corrected values in the audit chain", async () => {
+    const text = JSON.stringify((await t.call("GET", P("/audit?limit=500"), org.adminToken)).body.items);
+    for (const pii of ["meera", "arjun", "Arjun", "Kavya", "99999", "CUST-77"]) assert.equal(text.includes(pii), false, pii);
+    assert.equal((await t.call("GET", P("/audit/verify"), org.adminToken)).body.valid, true);
+  });
+});

@@ -15,6 +15,7 @@ import type {
 import { conflict, notFound, unprocessable } from "../domain/errors.ts";
 import { assertPermission, assertTenantAccess } from "../domain/permissions.ts";
 import {
+  buildAccessPack,
   dueAt,
   formatReference,
   isOverdue,
@@ -26,13 +27,17 @@ import {
   type RightsRequestType,
   type VerificationMethod,
 } from "../domain/rights.ts";
+import { consentsRepository } from "../repositories/consents.repository.ts";
 import { dataPrincipalsRepository } from "../repositories/data-principals.repository.ts";
+import { nominationsRepository } from "../repositories/nominations.repository.ts";
+import { ropaRepository } from "../repositories/ropa.repository.ts";
 import { membershipsRepository } from "../repositories/memberships.repository.ts";
 import { organizationsRepository } from "../repositories/organizations.repository.ts";
 import {
   rightsRepository,
   type RightsFilter,
 } from "../repositories/rights.repository.ts";
+import { artifactsService } from "./artifacts.service.ts";
 import { auditService } from "./audit.service.ts";
 import { eraseInTx } from "./data-principals.service.ts";
 import { mailer, type MailMessage } from "./mailer.ts";
@@ -169,6 +174,27 @@ async function verifiedEmails(tx: Tx, org: Organization, r: RightsRequest) {
     rightsEmails.received(org, r),
     ...staff.map((s) => rightsEmails.newRequest(org, r, s.email)),
   ];
+}
+
+/** Request must be active, of `type`, and linked to a principal that isn't erased. */
+async function activePrincipal(
+  tx: Tx,
+  r: RightsRequest,
+  type: RightsRequestType,
+) {
+  if (r.type !== type)
+    throw conflict(`Only ${type} requests support this action`);
+  if (r.status !== "open" && r.status !== "in_progress")
+    throw conflict(`Request is ${r.status.replace("_", " ")}`);
+  if (!r.principalId) throw unprocessable("Link the data principal first");
+  const p = await dataPrincipalsRepository.findById(
+    tx,
+    r.orgId,
+    r.principalId,
+    { forUpdate: true },
+  );
+  if (!p || p.erasedAt) throw conflict("Data principal is erased");
+  return p;
 }
 
 const withOverdue = (r: RightsRequest) => ({
@@ -448,6 +474,174 @@ export const rightsService = {
         consentsWithdrawn: erased.consentsWithdrawn,
       });
       return { consentsWithdrawn: erased.consentsWithdrawn };
+    });
+  },
+
+  // ─── Part 2: access pack, correction, nomination ──────────────────────────
+
+  /**
+   * s.11: build the access summary for the linked principal as a JSON file, stored as the
+   * request's response artifact (staff review it, then complete the request).
+   */
+  prepareAccessPack(ctx: OrgContext, id: string) {
+    assertPermission(ctx, "data.write");
+    return db.transaction(async (tx) => {
+      const r = await loadForUpdate(tx, ctx, id);
+      const principal = await activePrincipal(tx, r, "access");
+      const org = (await organizationsRepository.findById(tx, ctx.org.orgId))!;
+      const consents = await consentsRepository.forPrincipalWithPurposes(
+        tx,
+        ctx.org.orgId,
+        principal.id,
+      );
+      const recipientsByActivity = new Map<
+        string,
+        { name: string; role: string; country: string }[]
+      >();
+      const categoriesByActivity = new Map<string, string[]>();
+      for (const activityId of new Set(
+        consents.map((c) => c.activityId).filter((x): x is string => !!x),
+      )) {
+        const linked = await ropaRepository.linked(tx, activityId);
+        recipientsByActivity.set(
+          activityId,
+          linked.recipients.map(({ name, role, country }) => ({
+            name,
+            role,
+            country,
+          })),
+        );
+        if (linked.dataCategories.length)
+          categoriesByActivity.set(
+            activityId,
+            linked.dataCategories.map((d) => d.name),
+          );
+      }
+      const pack = buildAccessPack({
+        organization: {
+          name: org.name,
+          contact: org.dpoEmail ?? org.grievanceEmail,
+        },
+        reference: r.reference,
+        principal,
+        consents,
+        recipientsByActivity,
+        categoriesByActivity,
+        generatedAt: new Date(),
+      });
+      const artifact = await artifactsService.store(tx, ctx.actor, {
+        orgId: ctx.org.orgId,
+        kind: "rights_response",
+        fileName: `access-summary-${r.reference}.json`,
+        contentType: "application/json",
+        body: new TextEncoder().encode(JSON.stringify(pack, null, 2)),
+        createdBy: ctx.user.userId,
+      });
+      const updated = await rightsRepository.update(tx, id, {
+        responseArtifactId: artifact.id,
+      });
+      await event(tx, updated, ctx.actor, "access_pack_prepared");
+      await audit(tx, ctx.actor, updated, "access_pack_prepared", {
+        artifactId: artifact.id,
+        purposes: pack.processing.length,
+        recipients: pack.sharedWith.length,
+      });
+      return { artifactId: artifact.id, pack };
+    });
+  },
+
+  /** s.12(2): correct / complete / update the linked principal's contact details. */
+  applyCorrection(
+    ctx: OrgContext,
+    id: string,
+    patch: { email?: string | null; phone?: string | null },
+  ) {
+    assertPermission(ctx, "data.write");
+    const fields = Object.keys(patch).sort();
+    if (!fields.length) throw unprocessable("Nothing to correct");
+    return db.transaction(async (tx) => {
+      const r = await loadForUpdate(tx, ctx, id);
+      const principal = await activePrincipal(tx, r, "correction");
+      await dataPrincipalsRepository.updateContact(
+        tx,
+        ctx.org.orgId,
+        principal.id,
+        patch,
+      );
+      // Field names only: old values are not kept (the point of a correction).
+      await event(tx, r, ctx.actor, "correction_applied", {
+        note: `Corrected: ${fields.join(", ")}`,
+      });
+      await audit(tx, ctx.actor, r, "correction_applied", { fields });
+      return { fields };
+    });
+  },
+
+  /** s.14 / r.14(4): record a nominee for the linked principal. */
+  addNomination(
+    ctx: OrgContext,
+    id: string,
+    v: {
+      nomineeName: string;
+      nomineeEmail?: string | null;
+      nomineePhone?: string | null;
+      relationship?: string | null;
+    },
+  ) {
+    assertPermission(ctx, "data.write");
+    if (!v.nomineeEmail && !v.nomineePhone)
+      throw unprocessable("Give the nominee's email or phone");
+    return db.transaction(async (tx) => {
+      const r = await loadForUpdate(tx, ctx, id);
+      const principal = await activePrincipal(tx, r, "nomination");
+      const n = await nominationsRepository.insert(tx, {
+        orgId: ctx.org.orgId,
+        principalId: principal.id,
+        requestId: r.id,
+        nomineeName: v.nomineeName,
+        nomineeEmail: v.nomineeEmail?.trim().toLowerCase() ?? null,
+        nomineePhone: v.nomineePhone ?? null,
+        relationship: v.relationship ?? null,
+      });
+      await event(tx, r, ctx.actor, "nomination_recorded");
+      await audit(tx, ctx.actor, r, "nomination_recorded", {
+        nominationId: n.id,
+      });
+      return n;
+    });
+  },
+
+  async listNominations(ctx: OrgContext, principalId: string) {
+    assertPermission(ctx, "data.read");
+    const p = await dataPrincipalsRepository.findById(
+      db,
+      ctx.org.orgId,
+      principalId,
+    );
+    if (!p) throw notFound("Data principal not found");
+    return nominationsRepository.list(db, ctx.org.orgId, principalId);
+  },
+
+  revokeNomination(ctx: OrgContext, nominationId: string) {
+    assertPermission(ctx, "data.write");
+    return db.transaction(async (tx) => {
+      const n = await nominationsRepository.find(
+        tx,
+        ctx.org.orgId,
+        nominationId,
+      );
+      if (!n) throw notFound("Nomination not found");
+      if (n.status === "revoked") throw conflict("Already revoked");
+      const revoked = await nominationsRepository.revoke(tx, n.id, new Date());
+      await auditService.record(tx, ctx.actor, {
+        orgId: ctx.org.orgId,
+        action: "nomination.revoked",
+        entityType: "nomination",
+        entityId: n.id,
+        principalId: n.principalId,
+        payload: {},
+      });
+      return revoked;
     });
   },
 };

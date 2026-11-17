@@ -3,7 +3,7 @@ import { createdAt } from "../_shared/index.ts";
 import { organizations, users } from "../auth/index.ts";
 
 /** Files produced for an org (exports, reports, crawler evidence). Content lives in the BlobStore. */
-export const artifactKind = pgEnum("artifact_kind", ["ropa_export", "report", "evidence"]);
+export const artifactKind = pgEnum("artifact_kind", ["ropa_export", "report", "evidence", "rights_response"]);
 
 export const artifacts = pgTable(
   "artifacts",
