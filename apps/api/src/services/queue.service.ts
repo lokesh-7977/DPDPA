@@ -18,6 +18,7 @@ export type JobPayloads = {
   "remediation.overdue_digest": { day: string };
   "rights.deadline_digest": { day: string };
   "breach.deadline_alerts": { hour: string };
+  "breach.notify_principals": { breachId: string };
 };
 
 export const queueService = {

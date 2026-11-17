@@ -264,3 +264,106 @@ describe("breach register", () => {
     assert.equal((await t.call("GET", P("/audit/verify"), org.adminToken)).body.valid, true);
   });
 });
+
+describe("part 2: notices to affected Data Principals (r.7(1)) and evidence", () => {
+  let id: string;
+  const ids: string[] = [];
+  const upload = (token: string, body: Uint8Array<ArrayBuffer> | string, type: string, fileName = "log.txt", orgPath = P(`/breaches/${id}`)) =>
+    t.app.request(`${orgPath}/evidence?fileName=${encodeURIComponent(fileName)}&description=Server%20log`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": type },
+      body,
+    });
+
+  before(async () => {
+    const b = await t.call("POST", P("/breaches"), editorToken, {
+      title: "Credential stuffing on login",
+      description: "Attackers logged in to some customer accounts.",
+      nature: "Account takeover",
+      dataCategories: ["email", "order history"],
+      consequencesForPrincipals: "Someone may have seen your order history.",
+      mitigation: "We reset the affected passwords.",
+      safetyStepsForPrincipals: "Use a unique password and enable two-step login.",
+      severity: "high",
+    });
+    id = b.body.id;
+    for (const [ref, email] of [["C1", "c1@x.in"], ["C2", "c2@x.in"], ["C3", null]] as const) {
+      const p = await t.call("POST", P("/data-principals"), editorToken, { externalRef: ref, ...(email ? { email } : {}) });
+      ids.push(p.body.id);
+    }
+  });
+
+  test("link affected principals: own org only, duplicates ignored", async () => {
+    const path = P(`/breaches/${id}/affected-principals`);
+    assert.equal((await t.call("POST", path, viewerToken, { principalIds: ids })).status, 403);
+    const foreign = await t.call("POST", `/orgs/${other.orgId}/data-principals`, other.adminToken, { externalRef: "Z" });
+    assert.equal((await t.call("POST", path, editorToken, { principalIds: [foreign.body.id] })).status, 422);
+    assert.equal((await t.call("POST", path, editorToken, { principalIds: [] })).status, 400);
+    const ok = await t.call("POST", path, editorToken, { principalIds: ids });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.equal(ok.body.added, 3);
+    assert.equal((await t.call("POST", path, editorToken, { principalIds: ids })).body.added, 0);
+    assert.equal((await t.call("GET", `/orgs/${other.orgId}/breaches/${id}/affected-principals`, other.adminToken)).status, 404);
+  });
+
+  test("draft covers r.7(1)(a)-(e); DPO approves; worker sends the same text to each", async () => {
+    const draft = (await t.call("GET", P(`/breaches/${id}/principal-notice/draft`), viewerToken)).body;
+    assert.equal(draft.approved, false);
+    for (const part of ["What happened", "What data was involved", "What this may mean for you", "What we have done", "What you can do", "Questions: dpo@acme.test"]) {
+      assert.ok(draft.body.includes(part), part);
+    }
+    const path = P(`/breaches/${id}/principal-notice`);
+    assert.equal((await t.call("POST", path, editorToken, draft)).status, 403);
+    const ok = await t.call("POST", path, dpoToken, { subject: draft.subject, body: draft.body });
+    assert.equal(ok.status, 202, JSON.stringify(ok.body));
+    assert.equal(ok.body.queued, 3);
+
+    await runOnce({ batch: 50 });
+    const list = (await t.call("GET", P(`/breaches/${id}/affected-principals`), viewerToken)).body;
+    assert.deepEqual(list.counts, { notified: 2, noContact: 1, failed: 0, pending: 0 });
+    const sent = memoryOutbox.filter((m) => m.subject === draft.subject);
+    assert.deepEqual(sent.map((m) => m.to).sort(), ["c1@x.in", "c2@x.in"]);
+    assert.ok(sent.every((m) => m.text === draft.body));
+
+    assert.equal((await t.call("POST", path, dpoToken, { subject: draft.subject, body: "changed" })).status, 409, "text fixed");
+    assert.equal((await t.call("GET", P(`/breaches/${id}/principal-notice/draft`), viewerToken)).body.approved, true);
+  });
+
+  test("people added later get the approved notice; Board report (vi) counts them", async () => {
+    const late = await t.call("POST", P("/data-principals"), editorToken, { externalRef: "C4", email: "c4@x.in" });
+    await t.call("POST", P(`/breaches/${id}/affected-principals`), editorToken, { principalIds: [late.body.id] });
+    await runOnce({ batch: 50 });
+    assert.ok(memoryOutbox.some((m) => m.to === "c4@x.in" && /security incident/.test(m.subject)));
+    const report = (await t.call("GET", P(`/breaches/${id}/board-notices/report/draft`), viewerToken)).body.body;
+    assert.match(report, /\(vi\) Intimations to affected Data Principals: 3 notified, 1 without registered contact/);
+  });
+
+  test("evidence: allowed types with matching content, 10 MB cap, org-scoped download", async () => {
+    const pdf = new TextEncoder().encode("%PDF-1.4\nforensic report\n%%EOF");
+    assert.equal((await upload(viewerToken, pdf, "application/pdf", "report.pdf")).status, 403);
+    const ok = await upload(editorToken, pdf, "application/pdf", "../../Forensic report.pdf");
+    assert.equal(ok.status, 201, await ok.clone().text());
+    const body = await ok.json();
+    assert.equal(body.artifact.fileName, "Forensic_report.pdf", "path stripped, name sanitised");
+
+    assert.equal((await upload(editorToken, "<html>x</html>", "text/html", "x.html")).status, 422, "no active content");
+    assert.equal((await upload(editorToken, "not a png", "image/png", "x.png")).status, 422, "content must match type");
+    assert.equal((await upload(editorToken, "", "text/plain")).status, 422, "empty");
+    assert.equal((await upload(editorToken, new Uint8Array(10 * 1024 * 1024 + 1), "text/plain")).status, 413);
+    assert.equal((await upload(other.adminToken, pdf, "application/pdf", "x.pdf", `/orgs/${other.orgId}/breaches/${id}`)).status, 404);
+
+    const list = (await t.call("GET", P(`/breaches/${id}/evidence`), viewerToken)).body;
+    assert.equal(list.length, 1);
+    assert.equal(list[0].description, "Server log");
+    const file = await t.app.request(P(`/artifacts/${list[0].artifactId}`), { headers: { Authorization: `Bearer ${viewerToken}` } });
+    assert.equal(file.headers.get("content-type"), "application/pdf");
+    assert.equal(await file.text(), "%PDF-1.4\nforensic report\n%%EOF");
+    assert.equal((await t.call("GET", `/orgs/${other.orgId}/artifacts/${list[0].artifactId}`, other.adminToken)).status, 404);
+  });
+
+  test("no recipient addresses or notice text in the audit chain", async () => {
+    const text = JSON.stringify((await t.call("GET", P("/audit?limit=500"), org.adminToken)).body.items);
+    for (const s of ["c1@x.in", "c4@x.in", "order history", "unique password"]) assert.equal(text.includes(s), false, s);
+    assert.equal((await t.call("GET", P("/audit/verify"), org.adminToken)).body.valid, true);
+  });
+});

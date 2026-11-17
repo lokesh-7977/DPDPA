@@ -23,7 +23,11 @@ import { invitationsRoutes } from "./routes/invitations.routes.ts";
 import { orgsRoutes } from "./routes/orgs.routes.ts";
 import { platformRoutes } from "./routes/platform.routes.ts";
 import { remediationRoutes } from "./routes/remediation.routes.ts";
-import { publicRightsRoutes, rightsIntegrationRoutes, rightsRoutes } from "./routes/rights.routes.ts";
+import {
+  publicRightsRoutes,
+  rightsIntegrationRoutes,
+  rightsRoutes,
+} from "./routes/rights.routes.ts";
 import { ropaRoutes } from "./routes/ropa.routes.ts";
 
 const base = createRouter();
@@ -39,24 +43,37 @@ const usesSessionCookie = (path: string) =>
   path.startsWith("/auth/") || path === "/invitations/accept";
 const apiCors = cors({ origin: env.CORS_ORIGINS });
 const cookieCors = cors({ origin: env.CORS_ORIGINS, credentials: true });
-base.use("*", (c, next) => (usesSessionCookie(c.req.path) ? cookieCors : apiCors)(c, next));
+base.use("*", (c, next) =>
+  (usesSessionCookie(c.req.path) ? cookieCors : apiCors)(c, next),
+);
 
 // CSRF defence in depth for cookie routes (SameSite is per-site, not per-origin):
 // a browser request from an origin we don't serve is rejected outright.
 base.use("*", async (c, next) => {
   const origin = c.req.header("origin");
-  if (origin && usesSessionCookie(c.req.path) && !env.CORS_ORIGINS.includes(origin)) {
+  if (
+    origin &&
+    usesSessionCookie(c.req.path) &&
+    !env.CORS_ORIGINS.includes(origin)
+  ) {
     return c.json({ error: "Origin not allowed" }, 403);
   }
   await next();
 });
-// 64 KB everywhere, except SARIF uploads from CI (10 MB).
-const tooLarge = (c: Parameters<Parameters<typeof bodyLimit>[0]["onError"] & {}>[0]) =>
-  c.json({ error: "Request body too large" }, 413);
+// 64 KB everywhere, except SARIF uploads from CI and breach evidence files (10 MB).
+const tooLarge = (
+  c: Parameters<Parameters<typeof bodyLimit>[0]["onError"] & {}>[0],
+) => c.json({ error: "Request body too large" }, 413);
 const defaultBodyLimit = bodyLimit({ maxSize: 64 * 1024, onError: tooLarge });
-const sarifBodyLimit = bodyLimit({ maxSize: 10 * 1024 * 1024, onError: tooLarge });
+const largeBodyLimit = bodyLimit({
+  maxSize: 10 * 1024 * 1024,
+  onError: tooLarge,
+});
+const EVIDENCE_PATH = /^\/orgs\/[^/]+\/breaches\/[^/]+\/evidence$/;
 base.use("*", (c, next) =>
-  (c.req.path === "/ci/code-scans/sarif" ? sarifBodyLimit : defaultBodyLimit)(c, next),
+  (c.req.path === "/ci/code-scans/sarif" || EVIDENCE_PATH.test(c.req.path)
+    ? largeBodyLimit
+    : defaultBodyLimit)(c, next),
 );
 
 base.openAPIRegistry.registerComponent("securitySchemes", "Bearer", {
@@ -99,7 +116,9 @@ routes.doc31("/openapi.json", {
   },
 });
 routes.get("/docs", Scalar({ url: "/openapi.json", pageTitle: "DPDPA API" }));
-routes.get("/", (c) => c.json({ name: "dpdpa-api", status: "ok", docs: "/docs" }));
+routes.get("/", (c) =>
+  c.json({ name: "dpdpa-api", status: "ok", docs: "/docs" }),
+);
 
 routes.notFound((c) => c.json({ error: "Not found" }, 404));
 routes.onError(errorHandler);

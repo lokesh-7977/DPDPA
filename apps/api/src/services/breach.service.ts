@@ -23,6 +23,7 @@ import {
 } from "../repositories/breach.repository.ts";
 import { membershipsRepository } from "../repositories/memberships.repository.ts";
 import { organizationsRepository } from "../repositories/organizations.repository.ts";
+import { breachNoticesRepository } from "../repositories/breach-notices.repository.ts";
 import { auditService } from "./audit.service.ts";
 import { mailer, type MailMessage } from "./mailer.ts";
 
@@ -242,14 +243,14 @@ export const breachService = {
     const b = await breachRepository.find(db, ctx.org.orgId, id);
     if (!b) throw notFound("Breach not found");
     const org = (await organizationsRepository.findById(db, ctx.org.orgId))!;
-    // Part 2 records intimations to Data Principals; until then none are counted.
     const body =
       kind === "initial"
         ? draftBoardInitial(facts(b), fiduciary(org))
-        : draftBoardReport(facts(b), fiduciary(org), {
-            notified: 0,
-            noContact: 0,
-          });
+        : draftBoardReport(
+            facts(b),
+            fiduciary(org),
+            await breachNoticesRepository.counts(db, b.id),
+          );
     return { kind, body };
   },
 

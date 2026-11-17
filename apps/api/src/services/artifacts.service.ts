@@ -8,7 +8,14 @@ import { auditService } from "./audit.service.ts";
 import { blobStore } from "./storage/blob-store.ts";
 
 type Kind = NewArtifact["kind"];
-const EXT: Record<string, string> = { "application/json": "json", "application/pdf": "pdf", "text/csv": "csv" };
+const EXT: Record<string, string> = {
+  "application/json": "json",
+  "application/pdf": "pdf",
+  "text/csv": "csv",
+  "text/plain": "txt",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+};
 
 export const artifactsService = {
   /**
