@@ -32,6 +32,8 @@ export const handlers: { [T in JobType]: Handler<T> } = {
   "dpia.sdf_reminders": (tx) => notificationsService.sdfDpiaReminders(tx),
 
   "remediation.overdue_digest": (tx, job) => notificationsService.overdueDigest(tx, job.payload.day),
+
+  "rights.deadline_digest": (tx) => notificationsService.rightsDeadlines(tx),
 };
 
 export const isJobType = (t: string): t is JobType => Object.hasOwn(handlers, t);

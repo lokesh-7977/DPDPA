@@ -85,6 +85,20 @@
       "when": 1794910520772,
       "tag": "0011_jobs_artifacts_remediation",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794925855983,
+      "tag": "0012_rights_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794925858063,
+      "tag": "0013_rights_guards",
+      "breakpoints": true
     }
   ]
 }

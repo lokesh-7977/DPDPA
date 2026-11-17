@@ -117,7 +117,7 @@ Detailed plans for finished/started phases live next to this file in `docs/plans
 | 5 | Security checks (passive + safe active) | ❌ |
 | 6 | Scoring (`domain/scoring.ts` pure), assessments, PDF reports, evidence (DPDPA + AIGIS controls) | ❌ |
 | 7 | Managed HoundDog via GitHub App reusing SARIF ingest path | ❌ |
-| 8a | Data Principal rights requests: access, correction, erasure, nomination, grievance; portal + API, verification, SLA (`2026-11-17-feature-parity-onetrust-aegis.md`) | ❌ |
+| 8a | Rights requests: public portal + email verification, API (`rights:submit`) + staff intake, deadlines (r.14(3)), assignment, history, emails, erasure execution, deadline digest | 🟡 part 1 ✅; part 2: access summary pack (s.11), correction applied to principal, structured nominations |
 | 8b | Breach management: incident register, Board intimation + 72h report, notices to principals | ❌ |
 | 8c | Notice builder (22 languages), consent widget / cookie banner, parental consent | ❌ |
 | 8d | Vendor (processor) assessments + cross-border transfer register | ❌ |

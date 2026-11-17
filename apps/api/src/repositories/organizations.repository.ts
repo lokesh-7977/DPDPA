@@ -3,7 +3,10 @@ import { organizations, type Executor } from "../db/index.ts";
 
 export type NewOrganization = typeof organizations.$inferInsert;
 export type OrganizationPatch = Partial<
-  Pick<NewOrganization, "name" | "legalName" | "dpoName" | "dpoEmail" | "grievanceEmail" | "isSdf">
+  Pick<
+    NewOrganization,
+    "name" | "legalName" | "dpoName" | "dpoEmail" | "grievanceEmail" | "isSdf" | "rightsResponseDays" | "rightsIdentifierHint"
+  >
 >;
 
 export const organizationsRepository = {
@@ -14,6 +17,11 @@ export const organizationsRepository = {
       .from(organizations)
       .where(and(eq(organizations.isSdf, true), eq(organizations.status, "active")))
       .orderBy(asc(organizations.name));
+  },
+
+  async findBySlug(ex: Executor, slug: string) {
+    const [row] = await ex.select().from(organizations).where(eq(organizations.slug, slug));
+    return row ?? null;
   },
 
   async findById(ex: Executor, id: string) {

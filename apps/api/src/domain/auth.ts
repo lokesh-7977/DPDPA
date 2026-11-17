@@ -22,8 +22,9 @@ export type OrgAccess = {
  * - consents:read     read data principals, purposes, consents
  * - consents:write    register principals, grant / withdraw consent (also allows read)
  * - principals:erase  execute right-to-erasure requests (DPDPA s.12)
+ * - rights:submit     file Data Principal rights requests for users the customer already authenticated
  */
-export const apiKeyScopes = ["scans:upload", "consents:read", "consents:write", "principals:erase"] as const;
+export const apiKeyScopes = ["scans:upload", "consents:read", "consents:write", "principals:erase", "rights:submit"] as const;
 export type ApiKeyScope = (typeof apiKeyScopes)[number];
 export type ApiKeyCaller = { keyId: string; orgId: string; scopes: ApiKeyScope[] };
 

@@ -22,6 +22,7 @@ import { invitationsRoutes } from "./routes/invitations.routes.ts";
 import { orgsRoutes } from "./routes/orgs.routes.ts";
 import { platformRoutes } from "./routes/platform.routes.ts";
 import { remediationRoutes } from "./routes/remediation.routes.ts";
+import { publicRightsRoutes, rightsIntegrationRoutes, rightsRoutes } from "./routes/rights.routes.ts";
 import { ropaRoutes } from "./routes/ropa.routes.ts";
 
 const base = createRouter();
@@ -80,6 +81,9 @@ const routes = base
   .route("/orgs", aiRoutes)
   .route("/orgs", remediationRoutes)
   .route("/orgs", jobsRoutes)
+  .route("/orgs", rightsRoutes)
+  .route("/public", publicRightsRoutes)
+  .route("/integrations", rightsIntegrationRoutes)
   .route("/catalog", catalogRoutes)
   .route("/ci", ciRoutes);
 
