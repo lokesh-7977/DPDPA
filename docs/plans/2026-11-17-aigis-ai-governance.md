@@ -29,7 +29,7 @@ AI systems through the same evidence-grade workflow as ROPA/DPIA.
 - **Approval** (privacy_officer / org_admin) refused for unacceptable tier or any high-severity gap.
 
 ## Phase 2e — DPDPA only
-AIGIS is grounded in DPDPA 2023 and the (draft) DPDP Rules 2025 only. No foreign frameworks.
+AIGIS is grounded in DPDPA 2023 and the DPDP Rules 2025 (final, G.S.R. 846(E)) only. No foreign frameworks.
 `AIGIS_BASELINE` v2: every control cites DPDPA provisions (enforced by a test). Gaps use DPDPA
 wording: decisions affecting the Data Principal (s.8(3)), children (s.9(1)/(3)), vendor as processor
 (s.8(2)), erasure at the vendor (s.8(7)), vendor listed for access requests (s.11), DPIA mandatory

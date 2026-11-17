@@ -103,7 +103,7 @@ Detailed plans for finished/started phases live next to this file in `docs/plans
 | 1a | `auth/` tables, org_id on consent + audit-log, composite FKs, per-org audit chain; consent module under orgs (members or API keys) | ✅ |
 | 1b | RLS roles/policies, `db/tenant.ts`, all services → `withOrg` (reads too), startup guard | ⏸ waits for a real Postgres (`2026-11-17-phase-1a-1b-tenancy-rls.md`) |
 | 1c | Own auth (argon2id, JWT + rotating refresh cookie), super admin, org roles + permission matrix, invitations, API keys | ✅ |
-| 2a | `rules/` catalog (DPDPA 2023, DPDP Rules 2025 draft, controls, detection rules) + seed + read API + org scoping | ✅ |
+| 2a | `rules/` catalog (DPDPA 2023, DPDP Rules 2025 final (G.S.R. 846(E), v2 with commencement dates), controls, detection rules) + seed + read API + org scoping | ✅ |
 | 2b | `ropa/` inventory + activities + review workflow + immutable versions + gaps + scan suggestions | ✅ |
 | 2c | DPIA (risks, residual, suggested risks, approval) + SDF annual status + daily reminder emails | ✅ |
 | **2d** | **AIGIS — AI governance**: AI register, personal data reaching each AI (HoundDog `ai_llm` flows), risk tier, `AIGIS_BASELINE` controls, approval + immutable versions, discovery suggestions (`2026-11-17-aigis-ai-governance.md`) | ✅ |

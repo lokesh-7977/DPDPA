@@ -34,8 +34,10 @@ export const ControlSchema = z
         framework: z.string(),
         ref: z.string(),
         title: z.string(),
-        /** "draft" = provision text not yet verified against the official notification. */
+        /** Status of the catalog version holding the provision (published / draft / retired). */
         status: z.string(),
+        /** Commencement date of the provision (YYYY-MM-DD), when it differs from the Act's. */
+        effectiveFrom: z.iso.date().nullable(),
       }),
     ),
   })

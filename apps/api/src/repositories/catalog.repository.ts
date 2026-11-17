@@ -40,15 +40,15 @@ export const catalogRepository = {
     return row!;
   },
 
-  /** Mark every other published version of the framework as retired (trigger allows only this change). */
-  async retireOlderPublished(ex: Executor, frameworkId: string, keepVersionId: string) {
+  /** Mark every other draft / published version of the framework as retired (the guard trigger allows this). */
+  async retireOlderVersions(ex: Executor, frameworkId: string, keepVersionId: string) {
     await ex
       .update(frameworkVersions)
       .set({ status: "retired" })
       .where(
         and(
           eq(frameworkVersions.frameworkId, frameworkId),
-          eq(frameworkVersions.status, "published"),
+          inArray(frameworkVersions.status, ["draft", "published"]),
           ne(frameworkVersions.id, keepVersionId),
         ),
       );
@@ -90,7 +90,8 @@ export const catalogRepository = {
       .from(frameworkVersions)
       .innerJoin(frameworks, eq(frameworkVersions.frameworkId, frameworks.id))
       .where(eq(frameworks.code, frameworkCode))
-      .orderBy(desc(frameworkVersions.createdAt))
+      // One seed transaction can create several versions with the same created_at: version breaks the tie.
+      .orderBy(desc(frameworkVersions.createdAt), desc(sql`${frameworkVersions.version}::int`))
       .limit(1);
     if (!version) return new Map<string, string>();
     const rows = await ex
@@ -136,7 +137,7 @@ export const catalogRepository = {
       .from(frameworkVersions)
       .innerJoin(frameworks, eq(frameworkVersions.frameworkId, frameworks.id))
       // Version breaks ties: one seed run can create several versions in the same instant.
-      .orderBy(asc(frameworks.code), desc(frameworkVersions.createdAt), desc(frameworkVersions.version));
+      .orderBy(asc(frameworks.code), desc(frameworkVersions.createdAt), desc(sql`${frameworkVersions.version}::int`));
   },
 
   /** Controls of the newest published version of a framework, with their provisions. */
@@ -156,6 +157,7 @@ export const catalogRepository = {
         provisionTitle: provisions.title,
         provisionFramework: frameworks.code,
         provisionStatus: frameworkVersions.status,
+        provisionEffectiveFrom: provisions.effectiveFrom,
       })
       .from(controls)
       .leftJoin(controlProvisions, eq(controlProvisions.controlId, controls.id))
