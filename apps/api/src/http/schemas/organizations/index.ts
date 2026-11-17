@@ -21,6 +21,9 @@ export const OrganizationSchema = z
     dpoName: z.string().nullable(),
     dpoEmail: z.string().nullable(),
     grievanceEmail: z.string().nullable(),
+    /** Published response period for rights requests and grievances (r.14(3)). */
+    rightsResponseDays: z.number().int(),
+    rightsIdentifierHint: z.string().nullable(),
     createdAt: z.iso.datetime(),
   })
   .openapi("Organization");
@@ -58,6 +61,10 @@ export const UpdateOrganizationSchema = z
     grievanceEmail: z.email().max(254).nullable(),
     /** Notified as a Significant Data Fiduciary (s.10): annual DPIA + audit required. */
     isSdf: z.boolean(),
+    /** DPDP Rules r.14(3): published response period, at most 90 days. */
+    rightsResponseDays: z.number().int().min(1).max(90),
+    /** What requesters must provide to be identified (r.14(1)(b)). */
+    rightsIdentifierHint: NoControlChars(300).nullable(),
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, "Nothing to update")
@@ -88,5 +95,7 @@ export const toOrganizationDto = (o: Organization) => ({
   dpoName: o.dpoName,
   dpoEmail: o.dpoEmail,
   grievanceEmail: o.grievanceEmail,
+  rightsResponseDays: o.rightsResponseDays,
+  rightsIdentifierHint: o.rightsIdentifierHint,
   createdAt: o.createdAt.toISOString(),
 });

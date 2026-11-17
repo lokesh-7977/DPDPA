@@ -16,4 +16,5 @@ export * from "./members/index.ts";
 export * from "./organizations/index.ts";
 export * from "./purposes/index.ts";
 export * from "./remediation/index.ts";
+export * from "./rights/index.ts";
 export * from "./ropa/index.ts";

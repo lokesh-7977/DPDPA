@@ -66,6 +66,10 @@ export const organizations = pgTable(
     dpoName: text("dpo_name"),
     dpoEmail: text("dpo_email"),
     grievanceEmail: text("grievance_email"),
+    /** Published response period for rights requests and grievances, max 90 days (DPDP Rules r.14(3)). */
+    rightsResponseDays: integer("rights_response_days").notNull().default(30),
+    /** What requesters must provide to be identified (r.14(1)(b)), e.g. "registered email or customer id". */
+    rightsIdentifierHint: text("rights_identifier_hint"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

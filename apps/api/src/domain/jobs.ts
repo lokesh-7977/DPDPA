@@ -1,6 +1,11 @@
 /** Background jobs: pure types and retry policy. */
 
-export const jobTypes = ["ropa.export", "dpia.sdf_reminders", "remediation.overdue_digest"] as const;
+export const jobTypes = [
+  "ropa.export",
+  "dpia.sdf_reminders",
+  "remediation.overdue_digest",
+  "rights.deadline_digest",
+] as const;
 export type JobType = (typeof jobTypes)[number];
 
 /** How long a claimed job is reserved for one worker before another may reclaim it. */

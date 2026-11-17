@@ -104,6 +104,11 @@ export const ciUploadLimit = rateLimit({
   key: (c) => c.var.apiKey?.keyId ?? null,
 });
 
+/** Public rights-request intake: per network (each submission sends an email). */
+export const rightsSubmitLimit = rateLimit({ name: "rights-submit", max: 10, windowMs: FIFTEEN_MIN, key: byNetwork });
+/** Verification links: per network (tokens are 256-bit, this only limits noise). */
+export const rightsVerifyLimit = rateLimit({ name: "rights-verify", max: 30, windowMs: FIFTEEN_MIN, key: byNetwork });
+
 /** After authenticateUser: per user. */
 export const passwordChangeLimit = rateLimit({
   name: "password-change",
