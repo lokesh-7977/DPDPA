@@ -10,6 +10,7 @@ export const ConsentSchema = z
     purposeId: z.uuid(),
     status,
     noticeVersion: z.string(),
+    noticeVersionId: z.uuid().nullable(),
     language: z.string(),
     channel: z.string(),
     grantedAt: z.iso.datetime(),
@@ -27,7 +28,10 @@ export const GrantConsentSchema = z
     noticeVersion: z
       .string()
       .regex(/^[A-Za-z0-9._-]{1,50}$/, "letters, digits, . _ - only")
+      .optional()
       .openapi({ example: "2026-11-01" }),
+    /** Notice published on this platform (preferred): consent is tied to that exact version. */
+    noticeVersionId: z.uuid().optional(),
     /** BCP-47 tag; DPDPA requires English or an 8th Schedule language option. */
     language: z
       .string()
@@ -38,6 +42,7 @@ export const GrantConsentSchema = z
       .openapi({ example: "web" }),
     expiresAt: z.iso.datetime().optional(),
   })
+  .refine((v) => v.noticeVersion || v.noticeVersionId, "noticeVersion or noticeVersionId is required")
   .openapi("GrantConsent");
 
 export const WithdrawConsentSchema = z
@@ -63,6 +68,7 @@ export const toConsentDto = (r: Consent) => ({
   purposeId: r.purposeId,
   status: r.status,
   noticeVersion: r.noticeVersion,
+  noticeVersionId: r.noticeVersionId,
   language: r.language,
   channel: r.channel,
   withdrawalReason: r.withdrawalReason,
