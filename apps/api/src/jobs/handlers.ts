@@ -2,6 +2,7 @@ import type { Job, Tx } from "../db/index.ts";
 import type { Actor } from "../domain/auth.ts";
 import type { JobType } from "../domain/jobs.ts";
 import { artifactsService } from "../services/artifacts.service.ts";
+import { breachService } from "../services/breach.service.ts";
 import { notificationsService } from "../services/notifications.service.ts";
 import type { JobPayloads } from "../services/queue.service.ts";
 import { ropaService } from "../services/ropa.service.ts";
@@ -34,6 +35,10 @@ export const handlers: { [T in JobType]: Handler<T> } = {
   "remediation.overdue_digest": (tx, job) => notificationsService.overdueDigest(tx, job.payload.day),
 
   "rights.deadline_digest": (tx) => notificationsService.rightsDeadlines(tx),
+
+  // The later of the scheduled hour and now: a delayed job still judges deadlines at run time.
+  "breach.deadline_alerts": (tx, job) =>
+    breachService.deadlineAlerts(tx, new Date(Math.max(Date.now(), Date.parse(`${job.payload.hour}:00:00Z`)))),
 };
 
 export const isJobType = (t: string): t is JobType => Object.hasOwn(handlers, t);

@@ -5,6 +5,7 @@ export * from "./assets/index.ts";
 export * from "./audit/index.ts";
 export * from "./catalog/index.ts";
 export * from "./auth/index.ts";
+export * from "./breach/index.ts";
 export * from "./code-scans/index.ts";
 export * from "./consents/index.ts";
 export * from "./data-principals/index.ts";

@@ -9,6 +9,7 @@ import { requestLogger } from "./middleware/request-logger.ts";
 import { createRouter } from "./openapi.ts";
 import { aiRoutes } from "./routes/ai.routes.ts";
 import { apiKeysRoutes } from "./routes/api-keys.routes.ts";
+import { breachRoutes } from "./routes/breach.routes.ts";
 import { jobsRoutes } from "./routes/jobs.routes.ts";
 import { assetsRoutes } from "./routes/assets.routes.ts";
 import { authRoutes } from "./routes/auth.routes.ts";
@@ -82,6 +83,7 @@ const routes = base
   .route("/orgs", remediationRoutes)
   .route("/orgs", jobsRoutes)
   .route("/orgs", rightsRoutes)
+  .route("/orgs", breachRoutes)
   .route("/public", publicRightsRoutes)
   .route("/integrations", rightsIntegrationRoutes)
   .route("/catalog", catalogRoutes)

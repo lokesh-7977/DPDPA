@@ -106,6 +106,20 @@
       "when": 1794926550506,
       "tag": "0014_rights_part2",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794926961883,
+      "tag": "0015_breaches",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794926963823,
+      "tag": "0016_breach_guards",
+      "breakpoints": true
     }
   ]
 }

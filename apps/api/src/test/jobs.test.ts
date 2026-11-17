@@ -56,7 +56,7 @@ describe("queue", () => {
 
   test("failing job retries with backoff, then goes dead (error name only)", async () => {
     const { job } = await queueService.enqueue(t.db, "nope" as never, org.orgId, {} as never, { maxAttempts: 2 });
-    await runOnce({ now: day(1) });
+    await runOnce({ now: day(1), batch: 50 });
     let rows = await queueService.listForPlatform({ user: { userId: "x", isSuperAdmin: true }, actor: { type: "system", id: "t" } }, { limit: 200 });
     let j = rows.find((r) => r.id === job.id)!;
     assert.equal(j.status, "queued");
@@ -64,7 +64,7 @@ describe("queue", () => {
     assert.equal(j.lastError, "TypeError");
     assert.ok(j.runAfter.getTime() > day(1).getTime(), "retry later");
 
-    await runOnce({ now: day(2) });
+    await runOnce({ now: day(2), batch: 50 });
     rows = await queueService.listForPlatform({ user: { userId: "x", isSuperAdmin: true }, actor: { type: "system", id: "t" } }, { limit: 200 });
     j = rows.find((r) => r.id === job.id)!;
     assert.equal(j.status, "dead");
