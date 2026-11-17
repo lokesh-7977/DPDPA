@@ -19,6 +19,7 @@ export type JobPayloads = {
   "rights.deadline_digest": { day: string };
   "breach.deadline_alerts": { hour: string };
   "breach.notify_principals": { breachId: string };
+  "controls.review_digest": { day: string };
 };
 
 export const queueService = {
@@ -81,6 +82,15 @@ export const queueService = {
         { day },
         {
           idempotencyKey: `rights.deadline_digest:${day}`,
+        },
+      );
+      await queueService.enqueue(
+        tx,
+        "controls.review_digest",
+        null,
+        { day },
+        {
+          idempotencyKey: `controls.review_digest:${day}`,
         },
       );
     });

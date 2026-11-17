@@ -1,14 +1,9 @@
 import { logger } from "../config/logger.ts";
 import { db, type Breach, type Tx } from "../db/index.ts";
 import type { Actor, OrgContext } from "../domain/auth.ts";
-import {
-  draftPrincipalNotice,
-  EVIDENCE_MAX_BYTES,
-  EVIDENCE_TYPES,
-  matchesDeclaredType,
-  safeFileName,
-} from "../domain/breach.ts";
+import { draftPrincipalNotice } from "../domain/breach.ts";
 import { conflict, notFound, unprocessable } from "../domain/errors.ts";
+import { validateEvidenceFile } from "../domain/evidence-files.ts";
 import { assertPermission } from "../domain/permissions.ts";
 import { breachNoticesRepository } from "../repositories/breach-notices.repository.ts";
 import { breachRepository } from "../repositories/breach.repository.ts";
@@ -276,24 +271,14 @@ export const breachNoticesService = {
     },
   ) {
     assertPermission(ctx, "data.write");
-    const type = v.contentType.split(";")[0]!.trim().toLowerCase();
-    const ext = EVIDENCE_TYPES[type];
-    if (!ext)
-      throw unprocessable(
-        `Allowed types: ${Object.keys(EVIDENCE_TYPES).join(", ")}`,
-      );
-    if (!v.body.byteLength) throw unprocessable("Empty file");
-    if (v.body.byteLength > EVIDENCE_MAX_BYTES)
-      throw unprocessable("File over 10 MB");
-    if (!matchesDeclaredType(v.body, type))
-      throw unprocessable("File content does not match its type");
+    const file = validateEvidenceFile(v);
     return db.transaction(async (tx) => {
       const b = await load(tx, ctx, id, true);
       const artifact = await artifactsService.store(tx, ctx.actor, {
         orgId: ctx.org.orgId,
         kind: "evidence",
-        fileName: safeFileName(v.fileName, ext),
-        contentType: type,
+        fileName: file.fileName,
+        contentType: file.contentType,
         body: v.body,
         createdBy: ctx.user.userId,
       });

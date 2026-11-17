@@ -7,6 +7,7 @@ export const jobTypes = [
   "rights.deadline_digest",
   "breach.deadline_alerts",
   "breach.notify_principals",
+  "controls.review_digest",
 ] as const;
 export type JobType = (typeof jobTypes)[number];
 
