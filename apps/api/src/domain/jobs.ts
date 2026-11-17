@@ -5,6 +5,7 @@ export const jobTypes = [
   "dpia.sdf_reminders",
   "remediation.overdue_digest",
   "rights.deadline_digest",
+  "breach.deadline_alerts",
 ] as const;
 export type JobType = (typeof jobTypes)[number];
 

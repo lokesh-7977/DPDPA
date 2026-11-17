@@ -1,0 +1,299 @@
+import { createRoute, z } from "@hono/zod-openapi";
+import type { BreachAction } from "../../domain/breach.ts";
+import { breachService } from "../../services/breach.service.ts";
+import { orgContext } from "../context.ts";
+import { authenticateUser, orgAccess } from "../middleware/user-auth.ts";
+import {
+  bearer,
+  createRouter,
+  errors,
+  ErrorSchema,
+  json,
+  jsonBody,
+} from "../openapi.ts";
+import {
+  BreachDetailSchema,
+  BreachNoticeParams,
+  BreachParams,
+  BreachSchema,
+  DraftSchema,
+  ExtensionSchema,
+  ListBreachesQuery,
+  NoticeRecordedSchema,
+  ReasonSchema,
+  RecordNoticeSchema,
+  ReportBreachSchema,
+  toBoardNoticeDto,
+  toBreachDto,
+  toBreachEventDto,
+  UpdateBreachSchema,
+} from "../schemas/breach/index.ts";
+import { OrgIdParam } from "../schemas/organizations/index.ts";
+
+/** DPDPA s.8(6), DPDP Rules r.7 — personal data breach management. */
+const base = {
+  tags: ["Breaches"],
+  security: bearer,
+  middleware: [authenticateUser, orgAccess],
+};
+const P = "/{orgId}/breaches";
+const notFound = json(ErrorSchema, "Not found");
+const conflict = json(ErrorSchema, "Wrong status");
+const unprocessable = json(ErrorSchema, "Unprocessable");
+
+const listRoute = createRoute({
+  ...base,
+  method: "get",
+  path: P,
+  summary: "Breach register (filter by status, severity, overdue Board report)",
+  request: { params: OrgIdParam, query: ListBreachesQuery },
+  responses: {
+    200: json(z.array(BreachSchema), "Breaches"),
+    404: notFound,
+    ...errors,
+  },
+});
+const reportRoute = createRoute({
+  ...base,
+  method: "post",
+  path: P,
+  summary:
+    "Report a breach (starts the 72 h Board report clock; DPO / admins emailed)",
+  request: { params: OrgIdParam, body: jsonBody(ReportBreachSchema, "Breach") },
+  responses: {
+    201: json(BreachSchema, "Reported"),
+    404: notFound,
+    422: unprocessable,
+    ...errors,
+  },
+});
+const getRoute = createRoute({
+  ...base,
+  method: "get",
+  path: `${P}/{breachId}`,
+  summary: "Breach with its timeline and the Board notices sent",
+  request: { params: BreachParams },
+  responses: {
+    200: json(BreachDetailSchema, "Breach"),
+    404: notFound,
+    ...errors,
+  },
+});
+const updateRoute = createRoute({
+  ...base,
+  method: "patch",
+  path: `${P}/{breachId}`,
+  summary: "Update facts as the investigation progresses",
+  request: {
+    params: BreachParams,
+    body: jsonBody(UpdateBreachSchema, "Changes"),
+  },
+  responses: {
+    200: json(BreachSchema, "Updated"),
+    404: notFound,
+    409: conflict,
+    422: unprocessable,
+    ...errors,
+  },
+});
+const draftRoute = createRoute({
+  ...base,
+  method: "get",
+  path: `${P}/{breachId}/board-notices/{kind}/draft`,
+  summary:
+    "Draft Board notice from the recorded facts: initial (r.7(2)(a)) or detailed report (r.7(2)(b))",
+  request: { params: BreachNoticeParams },
+  responses: { 200: json(DraftSchema, "Draft"), 404: notFound, ...errors },
+});
+const recordNoticeRoute = createRoute({
+  ...base,
+  method: "post",
+  path: `${P}/{breachId}/board-notices/{kind}`,
+  summary:
+    "Record the notice sent to the Board (exact text, time, Board reference; immutable)",
+  request: {
+    params: BreachNoticeParams,
+    body: jsonBody(RecordNoticeSchema, "Notice"),
+  },
+  responses: {
+    201: json(NoticeRecordedSchema, "Recorded"),
+    404: notFound,
+    409: conflict,
+    422: unprocessable,
+    ...errors,
+  },
+});
+const extensionRoute = createRoute({
+  ...base,
+  method: "post",
+  path: `${P}/{breachId}/board-extension`,
+  summary:
+    "Record a longer period the Board allowed for the detailed report (r.7(2)(b))",
+  request: {
+    params: BreachParams,
+    body: jsonBody(ExtensionSchema, "Extension"),
+  },
+  responses: {
+    200: json(BreachSchema, "Recorded"),
+    404: notFound,
+    409: conflict,
+    422: unprocessable,
+    ...errors,
+  },
+});
+
+const actionResponses = {
+  200: json(BreachSchema, "Updated"),
+  404: notFound,
+  409: conflict,
+  422: unprocessable,
+  ...errors,
+};
+const actionRoute = (action: BreachAction, summary: string) =>
+  createRoute({
+    ...base,
+    method: "post",
+    path: `${P}/{breachId}/${action}`,
+    summary,
+    request: { params: BreachParams },
+    responses: actionResponses,
+  });
+const reasonRoute = (action: BreachAction, summary: string) =>
+  createRoute({
+    ...base,
+    method: "post",
+    path: `${P}/{breachId}/${action}`,
+    summary,
+    request: { params: BreachParams, body: jsonBody(ReasonSchema, "Reason") },
+    responses: actionResponses,
+  });
+
+const investigateRoute = actionRoute("investigate", "Start investigating");
+const containRoute = actionRoute("contain", "Mark contained");
+const closeRoute = actionRoute(
+  "close",
+  "Close (DPO / admin; detailed Board report must be recorded)",
+);
+const dismissRoute = reasonRoute(
+  "dismiss",
+  "Dismiss as not a personal data breach (DPO / admin, reason)",
+);
+const reopenRoute = reasonRoute("reopen", "Reopen (DPO / admin, reason)");
+
+type Ctx = { req: { valid(t: "param"): { breachId: string } } };
+const id = (c: Ctx) => c.req.valid("param").breachId;
+
+export const breachRoutes = createRouter()
+  .openapi(listRoute, async (c) =>
+    c.json(
+      (await breachService.list(orgContext(c), c.req.valid("query"))).map(
+        toBreachDto,
+      ),
+      200,
+    ),
+  )
+  .openapi(reportRoute, async (c) =>
+    c.json(
+      toBreachDto(
+        await breachService.report(orgContext(c), c.req.valid("json")),
+      ),
+      201,
+    ),
+  )
+  .openapi(getRoute, async (c) => {
+    const d = await breachService.get(orgContext(c), id(c));
+    return c.json(
+      {
+        breach: toBreachDto(d.breach),
+        events: d.events.map(toBreachEventDto),
+        notices: d.notices.map(toBoardNoticeDto),
+      },
+      200,
+    );
+  })
+  .openapi(updateRoute, async (c) =>
+    c.json(
+      toBreachDto(
+        await breachService.update(orgContext(c), id(c), c.req.valid("json")),
+      ),
+      200,
+    ),
+  )
+  .openapi(draftRoute, async (c) =>
+    c.json(
+      await breachService.draftBoardNotice(
+        orgContext(c),
+        id(c),
+        c.req.valid("param").kind,
+      ),
+      200,
+    ),
+  )
+  .openapi(recordNoticeRoute, async (c) => {
+    const r = await breachService.recordBoardNotice(
+      orgContext(c),
+      id(c),
+      c.req.valid("param").kind,
+      c.req.valid("json"),
+    );
+    return c.json(
+      { breach: toBreachDto(r.breach), notice: toBoardNoticeDto(r.notice) },
+      201,
+    );
+  })
+  .openapi(extensionRoute, async (c) =>
+    c.json(
+      toBreachDto(
+        await breachService.recordExtension(
+          orgContext(c),
+          id(c),
+          c.req.valid("json"),
+        ),
+      ),
+      200,
+    ),
+  )
+  .openapi(investigateRoute, async (c) =>
+    c.json(
+      toBreachDto(await breachService.act(orgContext(c), id(c), "investigate")),
+      200,
+    ),
+  )
+  .openapi(containRoute, async (c) =>
+    c.json(
+      toBreachDto(await breachService.act(orgContext(c), id(c), "contain")),
+      200,
+    ),
+  )
+  .openapi(closeRoute, async (c) =>
+    c.json(
+      toBreachDto(await breachService.act(orgContext(c), id(c), "close")),
+      200,
+    ),
+  )
+  .openapi(dismissRoute, async (c) =>
+    c.json(
+      toBreachDto(
+        await breachService.act(
+          orgContext(c),
+          id(c),
+          "dismiss",
+          c.req.valid("json").reason,
+        ),
+      ),
+      200,
+    ),
+  )
+  .openapi(reopenRoute, async (c) =>
+    c.json(
+      toBreachDto(
+        await breachService.act(
+          orgContext(c),
+          id(c),
+          "reopen",
+          c.req.valid("json").reason,
+        ),
+      ),
+      200,
+    ),
+  );

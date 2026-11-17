@@ -17,6 +17,7 @@ export type JobPayloads = {
   "dpia.sdf_reminders": { day: string };
   "remediation.overdue_digest": { day: string };
   "rights.deadline_digest": { day: string };
+  "breach.deadline_alerts": { hour: string };
 };
 
 export const queueService = {
@@ -38,10 +39,24 @@ export const queueService = {
     return jobsRepository.insert(ex, { type, orgId, payload, ...opts });
   },
 
-  /** Daily jobs for the UTC day of `now`; idempotent, so every worker may call it. */
-  async scheduleDaily(now = new Date()) {
+  /**
+   * Recurring jobs: daily ones for the UTC day of `now`, hourly ones for its UTC hour.
+   * Idempotent (keyed by day / hour), so every worker may call it on every poll.
+   */
+  async scheduleRecurring(now = new Date()) {
     const day = utcDay(now);
+    const hour = now.toISOString().slice(0, 13);
     await db.transaction(async (tx) => {
+      // r.7(2)(b) has a 72-hour clock: daily is too coarse.
+      await queueService.enqueue(
+        tx,
+        "breach.deadline_alerts",
+        null,
+        { hour },
+        {
+          idempotencyKey: `breach.deadline_alerts:${hour}`,
+        },
+      );
       await queueService.enqueue(
         tx,
         "dpia.sdf_reminders",

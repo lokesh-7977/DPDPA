@@ -23,12 +23,12 @@ async function runJob(job: Job, workerId: string, now?: Date) {
 }
 
 /**
- * One poll: schedule today's daily jobs, claim due jobs, run them sequentially.
+ * One poll: schedule recurring (daily / hourly) jobs, claim due jobs, run them sequentially.
  * Returns how many ran. Tests call this directly.
  */
 export async function runOnce(opts: { workerId?: string; batch?: number; now?: Date } = {}) {
   const workerId = opts.workerId ?? newWorkerId();
-  await queueService.scheduleDaily(opts.now);
+  await queueService.scheduleRecurring(opts.now);
   const jobs = await queueService.claim(workerId, opts.batch ?? 5, opts.now);
   let ok = 0;
   for (const job of jobs) if ((await runJob(job, workerId, opts.now)).ok) ok++;
