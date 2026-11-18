@@ -31,8 +31,24 @@ const ScanSchema = z
     domainId: z.uuid(),
     authorizationId: z.uuid(),
     status: z.enum(["queued", "running", "completed", "stopped", "failed"]),
-    scanType: z.enum(["web_crawl_public", "web_crawl_authenticated"]),
+    scanType: z.enum([
+      "web_crawl_public",
+      "web_crawl_authenticated",
+      "security",
+    ]),
     credentialId: z.uuid().nullable(),
+    activeProbes: z.boolean(),
+    /** Security scans with active probes: what each probe found (no response content). */
+    probes: z
+      .array(
+        z.object({
+          code: z.string(),
+          path: z.string(),
+          outcome: z.enum(["exposed", "ok", "skipped", "failed"]),
+          note: z.string().nullable(),
+        }),
+      )
+      .nullable(),
     maxPages: z.number().int(),
     maxDepth: z.number().int(),
     pagesFetched: z.number().int(),
@@ -70,6 +86,8 @@ const toScanDto = (s: WebScan) => ({
   status: s.status,
   scanType: s.scanType,
   credentialId: s.credentialId,
+  activeProbes: s.activeProbes,
+  probes: s.probes ?? null,
   maxPages: s.maxPages,
   maxDepth: s.maxDepth,
   pagesFetched: s.pagesFetched,
@@ -108,6 +126,10 @@ const startRoute = createRoute({
         authorizationId: z.uuid(),
         /** Crawl behind this test account's login (authorization must allow web_crawl_authenticated). */
         credentialId: z.uuid().optional(),
+        /** Security scan instead of a privacy crawl: needs security_passive (+ security_active_safe for probes). */
+        security: z
+          .object({ activeProbes: z.boolean().default(false) })
+          .optional(),
         maxPages: z
           .number()
           .int()

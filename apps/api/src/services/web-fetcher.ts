@@ -1,8 +1,13 @@
 import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { request } from "node:https";
+import type { TLSSocket } from "node:tls";
 import type { LookupFunction } from "node:net";
 import { env } from "../config/env.ts";
 import { isPrivateAddress } from "../domain/scan-authorization.ts";
+import {
+  pickSecurityHeaders,
+  type TlsInfo,
+} from "../domain/security-checks.ts";
 
 /** What the crawler sees of one response. `error` is a short label when nothing was received. */
 export type FetchResult =
@@ -15,13 +20,23 @@ export type FetchResult =
       /** HTML body (only for text/html, capped); null otherwise. */
       html: string | null;
       truncated: boolean;
+      /** Security headers only (domain/security-checks.ts pickSecurityHeaders). */
+      headers?: Record<string, string>;
+      tls?: TlsInfo | null;
+      /** First bytes of any body, when `sampleBytes` was asked (probes; never stored). */
+      sample?: string;
     }
   | { ok: false; error: string };
 
-/** Authenticated crawls only: session cookie, and the login form POST. */
 export type FetchOptions = {
+  /** Authenticated crawls: session cookie. */
   cookie?: string | null;
+  /** Authenticated crawls: the login form POST. */
   form?: Record<string, string>;
+  /** Security probes: read this many bytes of any body into `sample`. */
+  sampleBytes?: number;
+  /** Security scans: accept TLS 1.0 / 1.1 so an outdated server can be reported (no secrets sent). */
+  legacyTls?: boolean;
 };
 
 export interface WebFetcher {
@@ -32,6 +47,18 @@ const TIMEOUT_MS = 10_000;
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
 export const SCANNER_USER_AGENT =
   "dpdpa-platform-scanner/1 (authorized privacy audit)";
+
+const CERT_ERROR = /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|ERR_TLS_CERT_ALTNAME/;
+
+function tlsInfo(socket: unknown): TlsInfo | null {
+  const s = socket as TLSSocket | null;
+  if (!s || typeof s.getProtocol !== "function") return null;
+  const cert = s.getPeerCertificate?.();
+  return {
+    protocol: s.getProtocol() ?? null,
+    certValidTo: cert?.valid_to ? new Date(cert.valid_to).toISOString() : null,
+  };
+}
 
 class PrivateAddressError extends Error {
   override name = "PrivateAddress";
@@ -85,6 +112,9 @@ export const networkFetcher: WebFetcher = {
         {
           method: body === null ? "GET" : "POST",
           lookup: publicOnlyLookup,
+          ...(opts.legacyTls && !opts.form && !opts.cookie
+            ? { minVersion: "TLSv1" as const }
+            : {}),
           headers: {
             "User-Agent": SCANNER_USER_AGENT,
             Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
@@ -111,7 +141,32 @@ export const networkFetcher: WebFetcher = {
             contentType,
             location: res.headers.location ?? null,
             setCookies: res.headers["set-cookie"] ?? [],
+            headers: pickSecurityHeaders(res.headers),
+            tls: tlsInfo(res.socket),
           };
+          if (opts.sampleBytes) {
+            const limit = opts.sampleBytes;
+            const parts: Buffer[] = [];
+            let got = 0;
+            const end = () =>
+              done({
+                ...head,
+                html: null,
+                truncated: false,
+                sample: Buffer.concat(parts).toString("utf8"),
+              });
+            res.on("data", (c: Buffer) => {
+              parts.push(c.subarray(0, Math.max(0, limit - got)));
+              got += c.length;
+              if (got >= limit) {
+                res.destroy();
+                end();
+              }
+            });
+            res.on("end", end);
+            res.on("error", end);
+            return;
+          }
           if (!isHtml || (res.statusCode ?? 0) >= 300) {
             res.destroy();
             return done({ ...head, html: null, truncated: false });
@@ -152,7 +207,9 @@ export const networkFetcher: WebFetcher = {
           error:
             e instanceof PrivateAddressError
               ? "private_address"
-              : "fetch_failed",
+              : CERT_ERROR.test((e as { code?: string }).code ?? "")
+                ? `tls_cert_invalid:${(e as { code?: string }).code}`
+                : "fetch_failed",
         }),
       );
       req.end(body ?? undefined);
