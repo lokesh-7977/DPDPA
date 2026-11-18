@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like } from "drizzle-orm";
 import {
   webScanFindings,
   webScanPages,
@@ -116,6 +116,22 @@ export const webScansRepository = {
 
   async updatePage(ex: Executor, id: string, patch: Partial<WebScanPage>) {
     await ex.update(webScanPages).set(patch).where(eq(webScanPages.id, id));
+  },
+
+  /** First failure note starting with `prefix` (e.g. a TLS certificate error), or null. */
+  async firstFailure(ex: Executor, scanId: string, prefix: string) {
+    const [row] = await ex
+      .select({ note: webScanPages.note })
+      .from(webScanPages)
+      .where(
+        and(
+          eq(webScanPages.scanId, scanId),
+          eq(webScanPages.status, "failed"),
+          like(webScanPages.note, `${prefix}%`),
+        ),
+      )
+      .limit(1);
+    return row?.note ?? null;
   },
 
   observations(ex: Executor, scanId: string) {

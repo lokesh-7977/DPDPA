@@ -1,3 +1,4 @@
+import type { SecurityObservation } from "./security-checks.ts";
 /**
  * Phase 4b — public website audit, pure rules. The crawler (plain HTTP, no JavaScript) turns
  * each page into a `PageObservation`; `siteFindings` turns the observations into DPDPA findings.
@@ -324,6 +325,8 @@ export type PageObservation = {
   /** Same-site links to crawl next (paths only) and off-site hosts linked. */
   links: string[];
   externalHosts: string[];
+  /** Security scans only (domain/security-checks.ts). */
+  security?: SecurityObservation;
 };
 
 const hostOf = (u: string, base: string) =>

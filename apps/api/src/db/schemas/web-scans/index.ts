@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   foreignKey,
   index,
   integer,
@@ -12,6 +13,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { ProbeResult } from "../../../domain/security-checks.ts";
 import type { PageObservation } from "../../../domain/web-audit.ts";
 import { webSeverities } from "../../../domain/web-audit.ts";
 import { createdAt } from "../_shared/index.ts";
@@ -22,6 +24,8 @@ import { domains, scanAuthorizations } from "../domains/index.ts";
 export const webScanType = pgEnum("web_scan_type", [
   "web_crawl_public",
   "web_crawl_authenticated",
+  /** Phase 5: crawl reading security from responses (+ optional safe probes). */
+  "security",
 ]);
 
 /**
@@ -93,6 +97,9 @@ export const webScans = pgTable(
     status: webScanStatus("status").notNull().default("queued"),
     scanType: webScanType("scan_type").notNull().default("web_crawl_public"),
     credentialId: uuid("credential_id"),
+    /** Security scans: also run the safe active probes (needs security_active_safe). */
+    activeProbes: boolean("active_probes").notNull().default(false),
+    probes: jsonb("probes").$type<ProbeResult[]>(),
     maxPages: integer("max_pages").notNull(),
     maxDepth: integer("max_depth").notNull(),
     pagesFetched: integer("pages_fetched").notNull().default(0),

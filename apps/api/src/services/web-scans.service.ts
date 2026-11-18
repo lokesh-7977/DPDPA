@@ -2,11 +2,12 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { logger } from "../config/logger.ts";
 import { db, type Tx, type WebScan } from "../db/index.ts";
 import type { Actor, OrgContext } from "../domain/auth.ts";
-import { conflict, notFound } from "../domain/errors.ts";
+import { conflict, notFound, unprocessable } from "../domain/errors.ts";
 import { assertPermission } from "../domain/permissions.ts";
 import {
   authorizationBlockedReason,
   urlBlockedReason,
+  type ScanType,
 } from "../domain/scan-authorization.ts";
 import {
   crawlPath,
@@ -18,6 +19,13 @@ import {
 import { domainsRepository } from "../repositories/domains.repository.ts";
 import { webScansRepository } from "../repositories/web-scans.repository.ts";
 import { CookieJar, isUnsafePath } from "../domain/authenticated-crawl.ts";
+import {
+  observeSecurity,
+  PROBE_SAMPLE_BYTES,
+  PROBES,
+  securityFindings,
+  type ProbeResult,
+} from "../domain/security-checks.ts";
 import { scanCredentialsRepository } from "../repositories/scan-credentials.repository.ts";
 import { auditService } from "./audit.service.ts";
 import { loginSession } from "./scan-credentials.service.ts";
@@ -68,6 +76,8 @@ export const webScansService = {
       maxDepth: number;
       /** A test account: crawl behind its login (needs web_crawl_authenticated). */
       credentialId?: string | null;
+      /** A security scan (needs security_passive; activeProbes also security_active_safe). */
+      security?: { activeProbes: boolean } | null;
     },
   ) {
     assertPermission(ctx, "data.approve");
@@ -84,9 +94,13 @@ export const webScansService = {
         authorization.domainId,
       );
       if (!domain) throw notFound("Domain not found");
-      const scanType = v.credentialId
-        ? "web_crawl_authenticated"
-        : "web_crawl_public";
+      if (v.security && v.credentialId)
+        throw unprocessable("Security scans run without a test account");
+      const scanType = v.security
+        ? "security"
+        : v.credentialId
+          ? "web_crawl_authenticated"
+          : "web_crawl_public";
       if (v.credentialId) {
         const c = await scanCredentialsRepository.find(
           tx,
@@ -98,10 +112,17 @@ export const webScansService = {
           throw conflict("The test account belongs to another domain");
         if (c.revokedAt) throw conflict("The test account is revoked");
       }
-      const reason = authorizationBlockedReason(
-        { domain, authorization, scanType },
-        new Date(),
-      );
+      const reason =
+        authorizationBlockedReason(
+          { domain, authorization, scanType: gateType(scanType) },
+          new Date(),
+        ) ??
+        (v.security?.activeProbes
+          ? authorizationBlockedReason(
+              { domain, authorization, scanType: "security_active_safe" },
+              new Date(),
+            )
+          : null);
       if (reason) throw conflict(`Scan refused: ${reason}`);
       if (
         await webScansRepository.activeForDomain(tx, ctx.org.orgId, domain.id)
@@ -126,6 +147,7 @@ export const webScansService = {
         maxDepth: v.maxDepth,
         scanType,
         credentialId: v.credentialId ?? null,
+        activeProbes: v.security?.activeProbes ?? false,
         requestedBy: ctx.user.userId,
       });
       await webScansRepository.addPages(
@@ -148,6 +170,7 @@ export const webScansService = {
         domainId: domain.id,
         authorizationId: authorization.id,
         scanType,
+        activeProbes: v.security?.activeProbes ?? false,
         maxPages: v.maxPages,
         maxDepth: v.maxDepth,
       });
@@ -222,7 +245,7 @@ export const webScansService = {
       const gate = await gateContext(db, orgId, scan.authorizationId);
       const stop = gate
         ? authorizationBlockedReason(
-            { ...gate, scanType: scan.scanType },
+            { ...gate, scanType: gateType(scan.scanType) },
             new Date(),
           )
         : "Authorization not found";
@@ -259,17 +282,16 @@ export const webScansService = {
       const gate = await gateContext(db, orgId, scan.authorizationId);
       const stop = gate
         ? authorizationBlockedReason(
-            { ...gate, scanType: scan.scanType },
+            { ...gate, scanType: gateType(scan.scanType) },
             new Date(),
           )
         : "Authorization not found";
       if (stop || !gate)
         return finish(scan, "stopped", stop ?? "Authorization not found");
-      if (scan.pagesFetched >= scan.maxPages)
-        return finish(scan, "completed", null);
+      if (scan.pagesFetched >= scan.maxPages) return complete(scan);
 
       const page = await webScansRepository.nextQueued(db, scanId);
-      if (!page) return finish(scan, "completed", null);
+      if (!page) return complete(scan);
       const url = `https://${gate.domain.hostname}${page.path}`;
       const blocked = urlBlockedReason({ ...gate, url });
       if (blocked) {
@@ -287,7 +309,11 @@ export const webScansService = {
         continue;
       }
 
-      const res = await webFetcher.fetch(url, { cookie: jar?.header() });
+      const isSecurity = scan.scanType === "security";
+      const res = await webFetcher.fetch(url, {
+        cookie: jar?.header(),
+        legacyTls: isSecurity,
+      });
       if (res.ok) jar?.add(res.setCookies);
       if (!res.ok) {
         await webScansRepository.updatePage(db, page.id, {
@@ -302,6 +328,13 @@ export const webScansService = {
         );
         // Logged-in pages can greet the test user by name: keep no titles.
         if (jar) observation.title = null;
+        if (isSecurity) {
+          observation.security = observeSecurity({
+            headers: res.headers ?? {},
+            tls: res.tls ?? null,
+            html: res.html,
+          });
+        }
         const next: string[] =
           page.depth < scan.maxDepth ? [...observation.links] : [];
         if (res.status >= 300 && res.status < 400 && res.location) {
@@ -353,6 +386,84 @@ export const webScansService = {
   },
 };
 
+const gateType = (t: WebScan["scanType"]): ScanType =>
+  t === "security" ? "security_passive" : t;
+
+/** Frontier done: a security scan with active probes runs them once, then the scan ends. */
+async function complete(scan: WebScan) {
+  if (scan.scanType === "security" && scan.activeProbes && !scan.probes) {
+    const probes = await runProbes(scan);
+    scan =
+      (await webScansRepository.update(db, scan.orgId, scan.id, { probes }, [
+        "running",
+      ])) ?? scan;
+  }
+  return finish(scan, "completed", null);
+}
+
+/**
+ * Safe active probes: fixed GETs, each through the gate with security_active_safe (re-read per
+ * probe). Only a short sample of each body is read to decide; nothing of it is stored.
+ */
+async function runProbes(scan: WebScan): Promise<ProbeResult[]> {
+  const out: ProbeResult[] = [];
+  for (const probe of PROBES) {
+    const gate = await gateContext(db, scan.orgId, scan.authorizationId);
+    const stop = gate
+      ? authorizationBlockedReason(
+          { ...gate, scanType: "security_active_safe" },
+          new Date(),
+        )
+      : "Authorization not found";
+    if (stop || !gate) {
+      out.push({
+        code: probe.code,
+        path: probe.path,
+        outcome: "skipped",
+        note: stop ?? "Authorization not found",
+      });
+      continue;
+    }
+    const url = `https://${gate.domain.hostname}${probe.path}`;
+    const blocked = urlBlockedReason({ ...gate, url });
+    if (blocked) {
+      out.push({
+        code: probe.code,
+        path: probe.path,
+        outcome: "skipped",
+        note: blocked,
+      });
+      continue;
+    }
+    const res = await webFetcher.fetch(url, {
+      sampleBytes: PROBE_SAMPLE_BYTES,
+      legacyTls: true,
+    });
+    if (!res.ok)
+      out.push({
+        code: probe.code,
+        path: probe.path,
+        outcome: "failed",
+        note: res.error.split(":")[0]!,
+      });
+    else {
+      const exposed = probe.exposed({
+        status: res.status,
+        contentType: res.contentType,
+        sample: res.sample ?? res.html ?? "",
+      });
+      out.push({
+        code: probe.code,
+        path: probe.path,
+        outcome: exposed ? "exposed" : "ok",
+        note: null,
+      });
+    }
+    await sleep(Math.ceil(1000 / gate.authorization.maxRps));
+  }
+  return out;
+}
+
 /** Ends the scan: findings from every page fetched so far (also for a stopped scan). */
 async function finish(
   scan: WebScan,
@@ -362,7 +473,17 @@ async function finish(
   const observations = (await webScansRepository.observations(db, scan.id))
     .map((r) => r.observation)
     .filter((o): o is PageObservation => !!o);
-  const findings = siteFindings(observations);
+  const findings =
+    scan.scanType === "security"
+      ? securityFindings(observations, scan.probes ?? [], {
+          now: new Date(),
+          certError: await webScansRepository.firstFailure(
+            db,
+            scan.id,
+            "tls_cert_invalid",
+          ),
+        })
+      : siteFindings(observations);
   const summary = {
     pagesWithForms: observations.filter((o) => o.forms.length).length,
     cmp: observations.map((o) => o.cmp).find(Boolean) ?? null,
