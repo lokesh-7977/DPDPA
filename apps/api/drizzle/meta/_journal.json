@@ -232,6 +232,20 @@
       "when": 1794996968342,
       "tag": "0032_security_scans",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794998147466,
+      "tag": "0033_program_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794998151905,
+      "tag": "0034_program_guards",
+      "breakpoints": true
     }
   ]
 }

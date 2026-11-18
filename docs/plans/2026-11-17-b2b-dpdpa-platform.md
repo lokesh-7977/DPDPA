@@ -122,7 +122,7 @@ Detailed plans for finished/started phases live next to this file in `docs/plans
 | 8c | Notices & consent (API only, no widget / banner): notice builder with versions + 23 languages + r.3 check, public notice API, consent tied to notice version, guardian verification (r.10, r.11), no tracking consent from children (s.9(3)), Consent Manager registry + channel (r.4) | ✅ |
 | 8d | Vendor (processor) assessments + contracts (contract-in-force refresh, review digest); cross-border transfer register + restricted countries (s.16, r.15) | ✅ |
 | 8e | Retention + erasure: purpose-served and Third Schedule inactivity rules, one-year floor (r.8(3)), 48 h notice (r.8(2)), legal holds, daily sweep, preview, audit proof | ✅ |
-| 9a | Program setup interview → applicable controls, policies, evidence backlog | ❌ |
+| 9a | Program setup interview → applicable controls (manual decisions win), required policies, evidence backlog | ✅ |
 | 9b | Policies: templates, AI drafts, approval, versions, employee attestation | ❌ |
 | 9c | Controls + evidence: owners, review cadence, link / note / file evidence, approval with segregation of duties, automatic checks from platform data, live status (not determined ≠ met), readiness per framework, daily owner digest | ✅ |
 | 9d | Org risk register (inherent/residual, heat map, mapped to controls) | ❌ |
