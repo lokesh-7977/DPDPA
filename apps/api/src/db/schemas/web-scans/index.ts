@@ -19,6 +19,51 @@ import { organizations, users } from "../auth/index.ts";
 import { domains, scanAuthorizations } from "../domains/index.ts";
 
 /** Phase 4b — public website crawls (plain HTTP, pre-consent state) and their DPDPA findings. */
+export const webScanType = pgEnum("web_scan_type", [
+  "web_crawl_public",
+  "web_crawl_authenticated",
+]);
+
+/**
+ * Phase 4c — website test accounts for authenticated crawls. Username + password are sealed
+ * with AES-256-GCM (services/credential-vault.ts), never returned by the API, and wiped on
+ * revocation.
+ */
+export const scanCredentials = pgTable(
+  "scan_credentials",
+  {
+    id: uuid("id").primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    domainId: uuid("domain_id").notNull(),
+    label: text("label").notNull(),
+    /** Path of the page holding the login form (must be inside the authorized paths). */
+    loginPath: text("login_path").notNull(),
+    /** Text that appears only when logged in (e.g. "Sign out"); proves the login worked. */
+    loggedInMarker: text("logged_in_marker").notNull(),
+    usernameField: text("username_field"),
+    passwordField: text("password_field"),
+    /** Sealed {username, password}; null once revoked (crypto-shredded). */
+    secret: text("secret"),
+    keyVersion: integer("key_version").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: uuid("revoked_by").references(() => users.id),
+  },
+  (t) => [
+    unique("scan_credentials_org_id_uq").on(t.orgId, t.id),
+    foreignKey({
+      name: "scan_credentials_domain_fk",
+      columns: [t.orgId, t.domainId],
+      foreignColumns: [domains.orgId, domains.id],
+    }),
+  ],
+);
+export type ScanCredential = typeof scanCredentials.$inferSelect;
+
 export const webScanStatus = pgEnum("web_scan_status", [
   "queued",
   "running",
@@ -46,6 +91,8 @@ export const webScans = pgTable(
       .notNull()
       .references(() => scanAuthorizations.id),
     status: webScanStatus("status").notNull().default("queued"),
+    scanType: webScanType("scan_type").notNull().default("web_crawl_public"),
+    credentialId: uuid("credential_id"),
     maxPages: integer("max_pages").notNull(),
     maxDepth: integer("max_depth").notNull(),
     pagesFetched: integer("pages_fetched").notNull().default(0),
@@ -64,6 +111,11 @@ export const webScans = pgTable(
       name: "web_scans_domain_fk",
       columns: [t.orgId, t.domainId],
       foreignColumns: [domains.orgId, domains.id],
+    }),
+    foreignKey({
+      name: "web_scans_credential_fk",
+      columns: [t.orgId, t.credentialId],
+      foreignColumns: [scanCredentials.orgId, scanCredentials.id],
     }),
     /** One crawl at a time per domain. */
     uniqueIndex("web_scans_active_uq")

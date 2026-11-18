@@ -17,7 +17,10 @@ import {
 } from "../domain/web-audit.ts";
 import { domainsRepository } from "../repositories/domains.repository.ts";
 import { webScansRepository } from "../repositories/web-scans.repository.ts";
+import { CookieJar, isUnsafePath } from "../domain/authenticated-crawl.ts";
+import { scanCredentialsRepository } from "../repositories/scan-credentials.repository.ts";
 import { auditService } from "./audit.service.ts";
+import { loginSession } from "./scan-credentials.service.ts";
 import { gateContext } from "./domains.service.ts";
 import { queueService } from "./queue.service.ts";
 import { webFetcher } from "./web-fetcher.ts";
@@ -35,7 +38,6 @@ import { webFetcher } from "./web-fetcher.ts";
  * next chunk.
  */
 
-const SCAN_TYPE = "web_crawl_public" as const;
 const CHUNK_PAGES = 20;
 const WORKER: Actor = { type: "system", id: "system:worker" };
 
@@ -60,7 +62,13 @@ export const webScansService = {
   /** DPO / admin starts a crawl under a signed authorization. */
   start(
     ctx: OrgContext,
-    v: { authorizationId: string; maxPages: number; maxDepth: number },
+    v: {
+      authorizationId: string;
+      maxPages: number;
+      maxDepth: number;
+      /** A test account: crawl behind its login (needs web_crawl_authenticated). */
+      credentialId?: string | null;
+    },
   ) {
     assertPermission(ctx, "data.approve");
     return db.transaction(async (tx) => {
@@ -76,8 +84,22 @@ export const webScansService = {
         authorization.domainId,
       );
       if (!domain) throw notFound("Domain not found");
+      const scanType = v.credentialId
+        ? "web_crawl_authenticated"
+        : "web_crawl_public";
+      if (v.credentialId) {
+        const c = await scanCredentialsRepository.find(
+          tx,
+          ctx.org.orgId,
+          v.credentialId,
+        );
+        if (!c) throw notFound("Test account not found");
+        if (c.domainId !== domain.id)
+          throw conflict("The test account belongs to another domain");
+        if (c.revokedAt) throw conflict("The test account is revoked");
+      }
       const reason = authorizationBlockedReason(
-        { domain, authorization, scanType: SCAN_TYPE },
+        { domain, authorization, scanType },
         new Date(),
       );
       if (reason) throw conflict(`Scan refused: ${reason}`);
@@ -102,6 +124,8 @@ export const webScansService = {
         authorizationId: authorization.id,
         maxPages: v.maxPages,
         maxDepth: v.maxDepth,
+        scanType,
+        credentialId: v.credentialId ?? null,
         requestedBy: ctx.user.userId,
       });
       await webScansRepository.addPages(
@@ -123,6 +147,7 @@ export const webScansService = {
       await audit(tx, ctx.actor, scan, "web_scan.started", {
         domainId: domain.id,
         authorizationId: authorization.id,
+        scanType,
         maxPages: v.maxPages,
         maxDepth: v.maxDepth,
       });
@@ -191,6 +216,41 @@ export const webScansService = {
       if (!scan) return { skipped: true };
     }
 
+    // Behind a login: sign in at the start of every chunk (cookies are never stored).
+    let jar: CookieJar | null = null;
+    if (scan.scanType === "web_crawl_authenticated") {
+      const gate = await gateContext(db, orgId, scan.authorizationId);
+      const stop = gate
+        ? authorizationBlockedReason(
+            { ...gate, scanType: scan.scanType },
+            new Date(),
+          )
+        : "Authorization not found";
+      if (stop || !gate)
+        return finish(scan, "stopped", stop ?? "Authorization not found");
+      const credential = scan.credentialId
+        ? await scanCredentialsRepository.find(db, orgId, scan.credentialId)
+        : null;
+      if (!credential) return finish(scan, "stopped", "Test account not found");
+      const login = await loginSession(gate, credential);
+      if (!login.ok) return finish(scan, "stopped", login.reason);
+      jar = login.jar;
+      if (
+        urlBlockedReason({
+          ...gate,
+          url: `https://${gate.domain.hostname}${login.landingPath}`,
+        }) === null
+      ) {
+        await webScansRepository.addPages(
+          db,
+          orgId,
+          scanId,
+          [login.landingPath],
+          0,
+        );
+      }
+    }
+
     for (let i = 0; i < CHUNK_PAGES; i++) {
       // Re-read everything before each request: cancel, revoke, lapse and expiry apply at once.
       const current = await webScansRepository.find(db, orgId, scanId);
@@ -199,7 +259,7 @@ export const webScansService = {
       const gate = await gateContext(db, orgId, scan.authorizationId);
       const stop = gate
         ? authorizationBlockedReason(
-            { ...gate, scanType: SCAN_TYPE },
+            { ...gate, scanType: scan.scanType },
             new Date(),
           )
         : "Authorization not found";
@@ -219,8 +279,16 @@ export const webScansService = {
         });
         continue;
       }
+      if (isUnsafePath(page.path)) {
+        await webScansRepository.updatePage(db, page.id, {
+          status: "skipped",
+          note: "Not followed: could end the session or change data",
+        });
+        continue;
+      }
 
-      const res = await webFetcher.fetch(url);
+      const res = await webFetcher.fetch(url, { cookie: jar?.header() });
+      if (res.ok) jar?.add(res.setCookies);
       if (!res.ok) {
         await webScansRepository.updatePage(db, page.id, {
           status: "failed",
@@ -232,6 +300,8 @@ export const webScansService = {
           { url, html: res.html, setCookies: res.setCookies },
           new Date(),
         );
+        // Logged-in pages can greet the test user by name: keep no titles.
+        if (jar) observation.title = null;
         const next: string[] =
           page.depth < scan.maxDepth ? [...observation.links] : [];
         if (res.status >= 300 && res.status < 400 && res.location) {

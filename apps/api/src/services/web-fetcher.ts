@@ -18,8 +18,14 @@ export type FetchResult =
     }
   | { ok: false; error: string };
 
+/** Authenticated crawls only: session cookie, and the login form POST. */
+export type FetchOptions = {
+  cookie?: string | null;
+  form?: Record<string, string>;
+};
+
 export interface WebFetcher {
-  fetch(url: string): Promise<FetchResult>;
+  fetch(url: string, opts?: FetchOptions): Promise<FetchResult>;
 }
 
 const TIMEOUT_MS = 10_000;
@@ -63,7 +69,8 @@ const publicOnlyLookup: LookupFunction = (hostname, options, callback) => {
  * bodies discarded.
  */
 export const networkFetcher: WebFetcher = {
-  fetch(url) {
+  fetch(url, opts = {}) {
+    const body = opts.form ? new URLSearchParams(opts.form).toString() : null;
     return new Promise<FetchResult>((resolve) => {
       let settled = false;
       const done = (r: FetchResult) => {
@@ -76,12 +83,19 @@ export const networkFetcher: WebFetcher = {
       const req = request(
         url,
         {
-          method: "GET",
+          method: body === null ? "GET" : "POST",
           lookup: publicOnlyLookup,
           headers: {
             "User-Agent": SCANNER_USER_AGENT,
             Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
             "Accept-Encoding": "identity",
+            ...(opts.cookie ? { Cookie: opts.cookie } : {}),
+            ...(body !== null
+              ? {
+                  "Content-Type": "application/x-www-form-urlencoded",
+                  "Content-Length": Buffer.byteLength(body).toString(),
+                }
+              : {}),
           },
         },
         (res) => {
@@ -141,7 +155,7 @@ export const networkFetcher: WebFetcher = {
               : "fetch_failed",
         }),
       );
-      req.end();
+      req.end(body ?? undefined);
     });
   },
 };
@@ -149,7 +163,7 @@ export const networkFetcher: WebFetcher = {
 let active: WebFetcher = networkFetcher;
 
 /** The fetcher in use (network in production; tests swap in a fake site). */
-export const webFetcher: WebFetcher = { fetch: (u) => active.fetch(u) };
+export const webFetcher: WebFetcher = { fetch: (u, o) => active.fetch(u, o) };
 
 /** Tests only: serve pages from memory. */
 export function useWebFetcher(f: WebFetcher) {

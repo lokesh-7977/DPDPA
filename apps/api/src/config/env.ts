@@ -21,6 +21,14 @@ const schema = z.object({
    * Defaults to a key derived from JWT_SECRET; set separately in production.
    */
   AUDIT_HMAC_KEY: z.string().min(32).optional(),
+  /**
+   * AES-256-GCM key (32 random bytes, base64) encrypting website test-account credentials
+   * (phase 4c). Defaults to a key derived from JWT_SECRET outside production.
+   */
+  CREDENTIAL_VAULT_KEY: z
+    .string()
+    .refine((s) => Buffer.from(s, "base64").length === 32, "CREDENTIAL_VAULT_KEY must be 32 bytes, base64")
+    .optional(),
   /** Only trust X-Forwarded-For when running behind a known reverse proxy. */
   TRUST_PROXY: z.stringbool().default(false),
   CORS_ORIGINS: z
@@ -81,6 +89,7 @@ if (env.NODE_ENV === "production") {
   } else if (/change-me/i.test(env.AUDIT_HMAC_KEY) || env.AUDIT_HMAC_KEY === env.JWT_SECRET) {
     problems.push("AUDIT_HMAC_KEY must be its own random secret (not JWT_SECRET, not the example)");
   }
+  if (!env.CREDENTIAL_VAULT_KEY) problems.push("CREDENTIAL_VAULT_KEY is required (openssl rand -base64 32)");
   if (!env.RATE_LIMIT_ENABLED) problems.push("RATE_LIMIT_ENABLED=false is not allowed in production");
   // memory/console would hold or print invitation tokens.
   if (env.MAIL_DRIVER !== "resend") {

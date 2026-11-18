@@ -113,7 +113,7 @@ Detailed plans for finished/started phases live next to this file in `docs/plans
 | 3c | Findings triage + ROPA suggestions + remediation tasks (assign, due dates, wont_do risk decisions, auto-close on fixing scan, overdue digest) | ✅ |
 | 4a | Domain verification (DNS TXT / .well-known, monthly re-check) + signed scan authorizations + the scan gate re-checked per request | ✅ |
 | 4b | Public website crawl (plain HTTP, pre-consent state) + DPDPA web findings; accept / reject consent states need a browser engine (later) | ✅ (HTTP engine) |
-| 4c | Credential vault + login flows + authenticated crawl | ❌ |
+| 4c | Credential vault (AES-256-GCM, org_admin, write-only) + authenticated crawl (login through the gate, unsafe links never followed) | ✅ |
 | 5 | Security checks (passive + safe active) | ❌ |
 | 6 | Scoring (`domain/scoring.ts` pure), assessments, PDF reports, evidence (DPDPA + AIGIS controls) | ❌ |
 | 7 | Managed HoundDog via GitHub App reusing SARIF ingest path | ❌ |
