@@ -86,6 +86,12 @@ export type OrgFacts = {
     vendorsWithoutContract: number;
   };
   sdfDpiaCurrent: boolean;
+  /** Transfer register (s.16): active transfers, those to restricted countries, recipients abroad not covered. */
+  transfers: {
+    active: number;
+    toRestricted: number;
+    unregisteredAbroad: number;
+  };
 };
 
 const SCAN_FRESH_DAYS = 30;
@@ -162,6 +168,21 @@ export const automaticChecks: Record<string, (f: OrgFacts) => CheckResult> = {
     if (!f.breaches.total)
       return nd("No breaches recorded: show the process with evidence");
     return pass("Every Board report was on time");
+  },
+  "DPDP-XBORDER-01": (f) => {
+    const t = f.transfers;
+    if (t.toRestricted)
+      return fail(
+        `${t.toRestricted} active transfer(s) to a country restricted under s.16(1)`,
+      );
+    if (t.unregisteredAbroad)
+      return fail(
+        `${t.unregisteredAbroad} recipient(s) outside India not in the transfer register`,
+      );
+    if (!t.active) return pass("No personal data transferred outside India");
+    return pass(
+      "Every recipient abroad is in the transfer register; no restricted destination",
+    );
   },
   "DPDP-SDF-01": (f) =>
     f.sdfDpiaCurrent

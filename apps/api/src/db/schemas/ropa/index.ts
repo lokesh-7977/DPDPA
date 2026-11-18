@@ -120,6 +120,7 @@ export const processingActivities = pgTable(
   },
   (t) => [
     uniqueIndex("processing_activities_uq").on(t.orgId, t.code),
+    unique("processing_activities_org_id_uq").on(t.orgId, t.id),
     index("processing_activities_status_idx").on(t.orgId, t.status),
     check(
       "processing_activities_retention_ck",

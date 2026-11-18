@@ -22,4 +22,5 @@ export * from "./purposes/index.ts";
 export * from "./remediation/index.ts";
 export * from "./rights/index.ts";
 export * from "./ropa/index.ts";
+export * from "./transfers/index.ts";
 export * from "./vendors/index.ts";

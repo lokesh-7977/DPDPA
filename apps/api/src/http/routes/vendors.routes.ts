@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { vendorsService } from "../../services/vendors.service.ts";
 import { orgContext } from "../context.ts";
+import { uploadLimit } from "../middleware/rate-limit.ts";
 import { authenticateUser, orgAccess } from "../middleware/user-auth.ts";
 import {
   bearer,
@@ -58,7 +59,6 @@ const listRoute = createRoute({
   request: { params: OrgIdParam },
   responses: {
     200: json(z.array(VendorSummarySchema), "Vendors"),
-    404: notFound,
     ...errors,
   },
 });
@@ -138,6 +138,7 @@ const approveRoute = createRoute({
     200: json(AssessmentSchema, "Approved"),
     404: notFound,
     409: conflict,
+    422: unprocessable,
     ...errors,
   },
 });
@@ -147,11 +148,15 @@ const rejectRoute = createRoute({
   path: "/{orgId}/vendor-assessments/{assessmentId}/reject",
   summary:
     "Reject with a reason (privacy_officer / org_admin, not the submitter)",
-  request: { params: AssessmentParams, body: jsonBody(VendorRejectSchema, "Reason") },
+  request: {
+    params: AssessmentParams,
+    body: jsonBody(VendorRejectSchema, "Reason"),
+  },
   responses: {
     200: json(AssessmentSchema, "Rejected"),
     404: notFound,
     409: conflict,
+    422: unprocessable,
     ...errors,
   },
 });
@@ -174,6 +179,7 @@ const contractRoute = createRoute({
 });
 const contractFileRoute = createRoute({
   ...base,
+  middleware: [...base.middleware, uploadLimit],
   method: "post",
   path: "/{orgId}/vendor-contracts/{contractId}/file",
   summary: "Attach the signed copy (raw body; PDF etc.; max 10 MB; once)",

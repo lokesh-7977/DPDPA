@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { complianceService } from "../../services/compliance.service.ts";
 import { orgContext } from "../context.ts";
+import { uploadLimit } from "../middleware/rate-limit.ts";
 import { authenticateUser, orgAccess } from "../middleware/user-auth.ts";
 import {
   bearer,
@@ -126,6 +127,7 @@ const addEvidenceRoute = createRoute({
 });
 const addEvidenceFileRoute = createRoute({
   ...base,
+  middleware: [...base.middleware, uploadLimit],
   method: "post",
   path: `${C}/evidence-files`,
   summary:

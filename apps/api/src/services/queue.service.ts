@@ -21,6 +21,7 @@ export type JobPayloads = {
   "breach.notify_principals": { breachId: string };
   "controls.review_digest": { day: string };
   "vendors.contract_refresh": { day: string };
+  "vendors.review_digest": { day: string };
 };
 
 export const queueService = {
@@ -101,6 +102,15 @@ export const queueService = {
         { day },
         {
           idempotencyKey: `vendors.contract_refresh:${day}`,
+        },
+      );
+      await queueService.enqueue(
+        tx,
+        "vendors.review_digest",
+        null,
+        { day },
+        {
+          idempotencyKey: `vendors.review_digest:${day}`,
         },
       );
     });

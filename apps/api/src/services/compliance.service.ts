@@ -18,6 +18,7 @@ import {
   type OrgFacts,
 } from "../domain/compliance.ts";
 import { sdfDpiaStatus } from "../domain/dpia.ts";
+import { utcDay } from "../domain/jobs.ts";
 import {
   conflict,
   forbidden,
@@ -36,6 +37,7 @@ import { membershipsRepository } from "../repositories/memberships.repository.ts
 import { organizationsRepository } from "../repositories/organizations.repository.ts";
 import { artifactsService } from "./artifacts.service.ts";
 import { auditService } from "./audit.service.ts";
+import { transferFacts } from "./transfers.service.ts";
 import { catalogService } from "./catalog.service.ts";
 import { mailer, type MailMessage } from "./mailer.ts";
 
@@ -67,6 +69,7 @@ async function facts(orgId: string, now: Date): Promise<OrgFacts> {
     isSdf: org.isSdf,
     contactPublished: !!(org.dpoEmail || org.grievanceEmail),
     sdfDpiaCurrent: !sdfDpiaStatus(org.isSdf, lastAnnual, now).overdue,
+    transfers: await transferFacts(db, orgId, utcDay(now)),
   };
 }
 
