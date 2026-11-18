@@ -24,6 +24,7 @@ export type JobPayloads = {
   "vendors.review_digest": { day: string };
   "retention.sweep": { day: string };
   "domains.recheck": { day: string };
+  "web_scan.crawl": { scanId: string; chunk: number };
 };
 
 export const queueService = {
@@ -164,6 +165,33 @@ export const queueService = {
         const result = await run(tx);
         await jobsRepository.succeed(tx, job.id, workerId, result, now);
       });
+      return { ok: true as const };
+    } catch (e) {
+      const dead = await jobsRepository.fail(
+        db,
+        job,
+        workerId,
+        errorLabel(e),
+        new Date(now.getTime() + retryDelayMs(job.attempts)),
+        now,
+      );
+      return { ok: false as const, dead, error: e };
+    }
+  },
+
+  /**
+   * For long, network-bound jobs (web crawls): runs outside any transaction (the job writes in
+   * its own short transactions), then marks the job succeeded.
+   */
+  async executeDetached(
+    job: Job,
+    workerId: string,
+    run: () => Promise<Record<string, unknown>>,
+    now = new Date(),
+  ) {
+    try {
+      const result = await run();
+      await jobsRepository.succeed(db, job.id, workerId, result, now);
       return { ok: true as const };
     } catch (e) {
       const dead = await jobsRepository.fail(

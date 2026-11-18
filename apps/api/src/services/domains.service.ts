@@ -311,6 +311,26 @@ export const domainsService = {
   },
 };
 
+/** Domain + authorization as stored now (scanners re-read this before every request). */
+export async function gateContext(
+  ex: Executor,
+  orgId: string,
+  authorizationId: string,
+) {
+  const authorization = await domainsRepository.authorization(
+    ex,
+    orgId,
+    authorizationId,
+  );
+  if (!authorization) return null;
+  const domain = await domainsRepository.find(
+    ex,
+    orgId,
+    authorization.domainId,
+  );
+  return domain ? { domain, authorization } : null;
+}
+
 /** The gate, read from the database at request time (revocation / lapse take effect at once). */
 export async function scanBlocked(
   ex: Executor,
@@ -319,15 +339,9 @@ export async function scanBlocked(
   scanType: ScanType,
   url: string,
 ) {
-  const auths = await domainsRepository.authorizations(ex, orgId);
-  const a = auths.find((x) => x.id === authorizationId);
-  if (!a) return "Authorization not found";
-  const d = await domainsRepository.find(ex, orgId, a.domainId);
-  if (!d) return "Domain not found";
-  return scanBlockedReason(
-    { domain: d, authorization: a, scanType, url },
-    new Date(),
-  );
+  const g = await gateContext(ex, orgId, authorizationId);
+  if (!g) return "Authorization not found";
+  return scanBlockedReason({ ...g, scanType, url }, new Date());
 }
 
 /** For scanners: throws unless the request is allowed. */
