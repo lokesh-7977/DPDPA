@@ -33,6 +33,7 @@ import {
 } from "./routes/rights.routes.ts";
 import { vendorsRoutes } from "./routes/vendors.routes.ts";
 import { retentionRoutes } from "./routes/retention.routes.ts";
+import { domainsRoutes } from "./routes/domains.routes.ts";
 import {
   restrictedCountriesRoutes,
   transfersRoutes,
@@ -117,6 +118,7 @@ const routes = base
   .route("/orgs", vendorsRoutes)
   .route("/orgs", transfersRoutes)
   .route("/orgs", retentionRoutes)
+  .route("/orgs", domainsRoutes)
   .route("/platform", restrictedCountriesRoutes)
   .route("/public", publicNoticesRoutes)
   .route("/public", publicRightsRoutes)

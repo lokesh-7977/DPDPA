@@ -23,6 +23,7 @@ export type JobPayloads = {
   "vendors.contract_refresh": { day: string };
   "vendors.review_digest": { day: string };
   "retention.sweep": { day: string };
+  "domains.recheck": { day: string };
 };
 
 export const queueService = {
@@ -121,6 +122,15 @@ export const queueService = {
         { day },
         {
           idempotencyKey: `retention.sweep:${day}`,
+        },
+      );
+      await queueService.enqueue(
+        tx,
+        "domains.recheck",
+        null,
+        { day },
+        {
+          idempotencyKey: `domains.recheck:${day}`,
         },
       );
     });

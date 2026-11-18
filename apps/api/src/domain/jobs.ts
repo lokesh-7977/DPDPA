@@ -11,6 +11,7 @@ export const jobTypes = [
   "vendors.contract_refresh",
   "vendors.review_digest",
   "retention.sweep",
+  "domains.recheck",
 ] as const;
 export type JobType = (typeof jobTypes)[number];
 

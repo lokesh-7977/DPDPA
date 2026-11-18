@@ -10,6 +10,7 @@ export * from "./auth/index.ts";
 export * from "./breach/index.ts";
 export * from "./compliance/index.ts";
 export * from "./consent/index.ts";
+export * from "./domains/index.ts";
 export * from "./dpia/index.ts";
 export * from "./findings/index.ts";
 export * from "./jobs/index.ts";
