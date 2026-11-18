@@ -31,6 +31,8 @@ const ScanSchema = z
     domainId: z.uuid(),
     authorizationId: z.uuid(),
     status: z.enum(["queued", "running", "completed", "stopped", "failed"]),
+    scanType: z.enum(["web_crawl_public", "web_crawl_authenticated"]),
+    credentialId: z.uuid().nullable(),
     maxPages: z.number().int(),
     maxDepth: z.number().int(),
     pagesFetched: z.number().int(),
@@ -66,6 +68,8 @@ const toScanDto = (s: WebScan) => ({
   domainId: s.domainId,
   authorizationId: s.authorizationId,
   status: s.status,
+  scanType: s.scanType,
+  credentialId: s.credentialId,
   maxPages: s.maxPages,
   maxDepth: s.maxDepth,
   pagesFetched: s.pagesFetched,
@@ -102,6 +106,8 @@ const startRoute = createRoute({
     body: jsonBody(
       z.object({
         authorizationId: z.uuid(),
+        /** Crawl behind this test account's login (authorization must allow web_crawl_authenticated). */
+        credentialId: z.uuid().optional(),
         maxPages: z
           .number()
           .int()

@@ -218,6 +218,13 @@
       "when": 1794993888657,
       "tag": "0030_web_scans",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794994617293,
+      "tag": "0031_scan_credentials",
+      "breakpoints": true
     }
   ]
 }
