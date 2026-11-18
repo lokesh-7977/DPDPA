@@ -131,6 +131,8 @@ export const ruleControls = pgTable(
   (t) => [primaryKey({ columns: [t.detectionRuleId, t.controlId] })],
 );
 
+export const scopingSource = pgEnum("control_scoping_source", ["manual", "interview"]);
+
 /** Tenant decision: is a control applicable to this org (and why not)? */
 export const orgControlScoping = pgTable(
   "org_control_scoping",
@@ -143,6 +145,8 @@ export const orgControlScoping = pgTable(
       .references(() => controls.id),
     applicable: boolean("applicable").notNull(),
     justification: text("justification"),
+    /** manual = decided by a person (always wins); interview = proposed by the program setup interview. */
+    source: scopingSource("source").notNull().default("manual"),
     decidedBy: uuid("decided_by").references(() => users.id),
     decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
   },

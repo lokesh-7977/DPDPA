@@ -201,14 +201,22 @@ export const catalogRepository = {
 
   async upsertScoping(
     ex: Executor,
-    v: { orgId: string; controlId: string; applicable: boolean; justification: string | null; decidedBy: string },
+    v: {
+      orgId: string;
+      controlId: string;
+      applicable: boolean;
+      justification: string | null;
+      decidedBy: string;
+      source?: "manual" | "interview";
+    },
   ) {
+    const source = v.source ?? "manual";
     const [row] = await ex
       .insert(orgControlScoping)
-      .values({ ...v, decidedAt: new Date() })
+      .values({ ...v, source, decidedAt: new Date() })
       .onConflictDoUpdate({
         target: [orgControlScoping.orgId, orgControlScoping.controlId],
-        set: { applicable: v.applicable, justification: v.justification, decidedBy: v.decidedBy, decidedAt: new Date() },
+        set: { applicable: v.applicable, justification: v.justification, decidedBy: v.decidedBy, source, decidedAt: new Date() },
       })
       .returning();
     return row!;
