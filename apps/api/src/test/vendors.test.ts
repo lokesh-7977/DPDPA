@@ -265,7 +265,11 @@ describe("vendors", () => {
       note: "Accepted with breach-notice follow-up",
     });
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
-    const year = new Date(Date.now() + 365 * 86_400_000)
+    // A year after the decision day (taken from decidedAt, so a run across UTC midnight is fine).
+    const decidedDay = Date.parse(
+      `${ok.body.decidedAt.slice(0, 10)}T00:00:00Z`,
+    );
+    const year = new Date(decidedDay + 365 * 86_400_000)
       .toISOString()
       .slice(0, 10);
     assert.equal(ok.body.nextReviewOn, year);
@@ -661,5 +665,100 @@ describe("review fixes", () => {
       await t.call("GET", P("/ropa/recipients"), viewerToken)
     ).body.find((x: any) => x.id === manual.body.id);
     assert.equal(r.contractRef, "Paper DPA 2019");
+  });
+});
+
+describe("part 2 follow-ups", () => {
+  test("drafts show no gaps and no recomputed score", async () => {
+    const v = (
+      await t.call("POST", P("/ropa/recipients"), editorToken, {
+        name: "DraftCo",
+        role: "processor",
+        country: "IN",
+      })
+    ).body.id;
+    await t.call("POST", P(`/vendors/${v}/assessments`), editorToken, {
+      answers: { contract: { answer: "yes" } },
+    });
+    const draft = (await t.call("GET", P(`/vendors/${v}`), viewerToken)).body
+      .assessments[0];
+    assert.equal(draft.status, "draft");
+    assert.deepEqual(draft.gaps, []);
+    assert.equal(draft.score, null);
+  });
+
+  test("another org can't write to this org's vendors, contracts or assessments", async () => {
+    const o = (path: string) => `/orgs/${other.orgId}${path}`;
+    assert.equal(
+      (
+        await t.call(
+          "POST",
+          o(`/vendors/${mailCo}/contracts`),
+          other.adminToken,
+          { reference: "X-1", signedOn: "2026-01-01", clauses: [] },
+        )
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await t.call(
+          "POST",
+          o(`/vendors/${mailCo}/assessments`),
+          other.adminToken,
+          { answers: {} },
+        )
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await t.call(
+          "PATCH",
+          o(`/vendor-assessments/${assessmentId}`),
+          other.adminToken,
+          { answers: allYes() },
+        )
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await t.call(
+          "POST",
+          o(`/vendor-assessments/${assessmentId}/approve`),
+          other.adminToken,
+          {},
+        )
+      ).status,
+      404,
+    );
+    const res = await t.app.request(
+      o(`/vendor-contracts/${contractId}/file?fileName=x.pdf`),
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${other.adminToken}`,
+          "Content-Type": "application/pdf",
+        },
+        body: new Uint8Array(new TextEncoder().encode("%PDF-1.4\nx\n%%EOF")),
+      },
+    );
+    assert.equal(res.status, 404);
+  });
+
+  test("daily vendor digest: never-assessed vendors, reviews and contracts due within 30 days", async () => {
+    // Run the job as of 10 days before MailCo's DPA-2026-04 expires (2028-03-31).
+    await runOnce({ now: new Date("2028-03-21T06:00:00Z"), batch: 50 });
+    const mail = [...(await import("../services/mailer.ts")).memoryOutbox]
+      .reverse()
+      .find(
+        (m) =>
+          m.to === "dpo@acme.test" &&
+          /vendor item\(s\) need attention/.test(m.subject),
+      );
+    assert.ok(mail, "digest sent to the DPO");
+    assert.match(mail.text, /MailCo: contract DPA-2026-04 expires 2028-03-31/);
+    assert.match(mail.text, /DraftCo: never assessed/);
   });
 });

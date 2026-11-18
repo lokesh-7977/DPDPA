@@ -3,6 +3,7 @@ import type { BreachAction } from "../../domain/breach.ts";
 import { breachNoticesService } from "../../services/breach-notices.service.ts";
 import { breachService } from "../../services/breach.service.ts";
 import { orgContext } from "../context.ts";
+import { uploadLimit } from "../middleware/rate-limit.ts";
 import { authenticateUser, orgAccess } from "../middleware/user-auth.ts";
 import {
   bearer,
@@ -260,6 +261,7 @@ const approveNoticeRoute = createRoute({
 });
 const addEvidenceRoute = createRoute({
   ...base,
+  middleware: [...base.middleware, uploadLimit],
   method: "post",
   path: `${P}/{breachId}/evidence`,
   summary:

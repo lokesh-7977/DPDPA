@@ -30,9 +30,13 @@ import {
   withContributor,
   type AssessmentAnswers,
 } from "../domain/vendors.ts";
+import { membershipsRepository } from "../repositories/memberships.repository.ts";
 import { vendorsRepository } from "../repositories/vendors.repository.ts";
 import { artifactsService } from "./artifacts.service.ts";
 import { auditService } from "./audit.service.ts";
+import { mailer } from "./mailer.ts";
+import { env } from "../config/env.ts";
+import { logger } from "../config/logger.ts";
 
 /**
  * Processors (DPDPA s.8(2)): DPDPA assessment questionnaire with scoring and approval, and
@@ -157,9 +161,11 @@ export const vendorsService = {
     return {
       vendor,
       ...summarise(assessments, contracts, today),
+      // Gaps only once submitted: a draft's unanswered questions are not "no" answers, and the
+      // stored score / risk (set on submit) are never replaced by a recomputed one.
       assessments: assessments.map((a) => ({
         ...a,
-        ...scoreAssessment(a.answers),
+        gaps: a.status === "draft" ? [] : scoreAssessment(a.answers).gaps,
       })),
       contracts: contracts.map((c) => ({
         ...c,
@@ -419,7 +425,68 @@ export const vendorsService = {
     }
     return { vendors: vendors.length, changed };
   },
+
+  /**
+   * Worker (daily): one email per org to its org_admins and privacy_officers listing vendors
+   * whose yearly assessment is due within 30 days or overdue (or never done), and contracts in
+   * force that expire within 30 days. Names and dates only.
+   */
+  async reviewDigest(tx: Tx, now = new Date()) {
+    const today = utcDay(now);
+    const soon = addDaysToDay(today, VENDOR_ATTENTION_DAYS);
+    let emails = 0;
+    for (const org of await vendorsRepository.orgsWithProcessors(tx)) {
+      const [vendors, assessments, contracts] = await Promise.all([
+        vendorsRepository.listProcessors(tx, org.id),
+        vendorsRepository.assessments(tx, org.id),
+        vendorsRepository.contracts(tx, org.id),
+      ]);
+      const lines: string[] = [];
+      for (const v of vendors) {
+        const s = summarise(
+          assessments.filter((a) => a.recipientId === v.id),
+          contracts.filter((c) => c.recipientId === v.id),
+          today,
+        );
+        if (!s.nextReviewOn) lines.push(`- ${v.name}: never assessed`);
+        else if (s.nextReviewOn <= soon) {
+          lines.push(
+            `- ${v.name}: assessment review ${s.nextReviewOn < today ? "overdue since" : "due"} ${s.nextReviewOn}`,
+          );
+        }
+        if (s.contract?.expiresOn && s.contract.expiresOn <= soon) {
+          lines.push(
+            `- ${v.name}: contract ${s.contract.reference} expires ${s.contract.expiresOn}`,
+          );
+        }
+      }
+      if (!lines.length) continue;
+      const to = await membershipsRepository.listByRoles(tx, org.id, [
+        "org_admin",
+        "privacy_officer",
+      ]);
+      for (const m of to) {
+        await mailer.send({
+          to: m.email,
+          subject: `${org.name}: ${lines.length} vendor item(s) need attention`,
+          text: [
+            "Processors (DPDPA s.8(2)) needing attention:",
+            "",
+            ...lines,
+            "",
+            `Open them: ${env.APP_URL}/orgs/${org.id}/vendors`,
+          ].join("\n"),
+        });
+        emails++;
+      }
+    }
+    logger.info({ emails }, "Vendor review digest sent");
+    return { emails };
+  },
 };
+
+/** Reminders start this many days before a review or contract expiry. */
+const VENDOR_ATTENTION_DAYS = 30;
 
 const WORKER: Actor = { type: "system", id: "system:worker" };
 

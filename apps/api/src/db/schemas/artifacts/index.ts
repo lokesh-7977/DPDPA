@@ -1,4 +1,4 @@
-import { bigint, index, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, index, pgEnum, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { createdAt } from "../_shared/index.ts";
 import { organizations, users } from "../auth/index.ts";
 
@@ -24,7 +24,11 @@ export const artifacts = pgTable(
     retentionUntil: timestamp("retention_until", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("artifacts_storage_key_uq").on(t.storageKey), index("artifacts_org_idx").on(t.orgId, t.createdAt)],
+  (t) => [
+    uniqueIndex("artifacts_storage_key_uq").on(t.storageKey),
+    index("artifacts_org_idx").on(t.orgId, t.createdAt),
+    unique("artifacts_org_id_uq").on(t.orgId, t.id),
+  ],
 );
 
 export type Artifact = typeof artifacts.$inferSelect;

@@ -63,6 +63,14 @@ export const handlers: { [T in JobType]: Handler<T> } = {
         Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
       ),
     ),
+
+  "vendors.review_digest": (tx, job) =>
+    vendorsService.reviewDigest(
+      tx,
+      new Date(
+        Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+      ),
+    ),
 };
 
 export const isJobType = (t: string): t is JobType =>

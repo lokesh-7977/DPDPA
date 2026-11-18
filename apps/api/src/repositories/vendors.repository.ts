@@ -144,6 +144,20 @@ export const vendorsRepository = {
       .orderBy(desc(vendorContracts.signedOn), desc(vendorContracts.createdAt));
   },
 
+  /** Active orgs that have at least one processor / sub-processor (daily digest). */
+  orgsWithProcessors(ex: Executor) {
+    return ex
+      .selectDistinct({ id: organizations.id, name: organizations.name })
+      .from(recipients)
+      .innerJoin(organizations, eq(recipients.orgId, organizations.id))
+      .where(
+        and(
+          eq(organizations.status, "active"),
+          inArray(recipients.role, [...PROCESSOR_ROLES]),
+        ),
+      );
+  },
+
   /**
    * Every vendor with at least one recorded contract, in active orgs, with its stored ref
    * (daily refresh). Vendors whose ref was typed by hand in ROPA, with no contract recorded

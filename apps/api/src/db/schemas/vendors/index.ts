@@ -98,7 +98,7 @@ export const vendorContracts = pgTable(
     /** Clauses present (domain/vendors.ts contractClauses). */
     clauses: text("clauses").array().notNull(),
     /** The signed copy, when uploaded. */
-    artifactId: uuid("artifact_id").references(() => artifacts.id),
+    artifactId: uuid("artifact_id"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: createdAt(),
   },
@@ -108,6 +108,11 @@ export const vendorContracts = pgTable(
       t.recipientId,
       t.signedOn,
     ),
+    foreignKey({
+      name: "vendor_contracts_artifact_fk",
+      columns: [t.orgId, t.artifactId],
+      foreignColumns: [artifacts.orgId, artifacts.id],
+    }),
     foreignKey({
       name: "vendor_contracts_recipient_fk",
       columns: [t.orgId, t.recipientId],

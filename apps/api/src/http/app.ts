@@ -32,6 +32,10 @@ import {
   rightsRoutes,
 } from "./routes/rights.routes.ts";
 import { vendorsRoutes } from "./routes/vendors.routes.ts";
+import {
+  restrictedCountriesRoutes,
+  transfersRoutes,
+} from "./routes/transfers.routes.ts";
 import { ropaRoutes } from "./routes/ropa.routes.ts";
 
 const base = createRouter();
@@ -110,6 +114,8 @@ const routes = base
   .route("/orgs", noticesRoutes)
   .route("/orgs", guardiansRoutes)
   .route("/orgs", vendorsRoutes)
+  .route("/orgs", transfersRoutes)
+  .route("/platform", restrictedCountriesRoutes)
   .route("/public", publicNoticesRoutes)
   .route("/public", publicRightsRoutes)
   .route("/integrations", rightsIntegrationRoutes)

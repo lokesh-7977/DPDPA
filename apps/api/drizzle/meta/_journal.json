@@ -183,6 +183,13 @@
       "when": 1794988269558,
       "tag": "0025_vendor_review_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794989599965,
+      "tag": "0026_transfers",
+      "breakpoints": true
     }
   ]
 }
