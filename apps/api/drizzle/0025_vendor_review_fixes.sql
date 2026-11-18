@@ -1,0 +1,2 @@
+ALTER TABLE "vendor_assessments" ADD COLUMN "contributors" uuid[] DEFAULT '{}'::uuid[] NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "vendor_assessments_open_uq" ON "vendor_assessments" USING btree ("org_id","recipient_id") WHERE "vendor_assessments"."status" IN ('draft', 'submitted');

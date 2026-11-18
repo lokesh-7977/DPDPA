@@ -7,6 +7,7 @@ import { breachNoticesService } from "../services/breach-notices.service.ts";
 import { breachService } from "../services/breach.service.ts";
 import { notificationsService } from "../services/notifications.service.ts";
 import type { JobPayloads } from "../services/queue.service.ts";
+import { vendorsService } from "../services/vendors.service.ts";
 import { ropaService } from "../services/ropa.service.ts";
 
 /** One handler per job type. Return value is stored as the job's result (ids/counts only). */
@@ -53,6 +54,15 @@ export const handlers: { [T in JobType]: Handler<T> } = {
     breachNoticesService.sendBatch(tx, job.orgId!, job.payload.breachId),
 
   "controls.review_digest": (tx) => complianceService.reviewDigest(tx),
+
+  // The later of the scheduled day and now: a delayed job still judges expiry at run time.
+  "vendors.contract_refresh": (tx, job) =>
+    vendorsService.refreshContractRefs(
+      tx,
+      new Date(
+        Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+      ),
+    ),
 };
 
 export const isJobType = (t: string): t is JobType =>
