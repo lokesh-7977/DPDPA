@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -15,7 +16,11 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { createdAt } from "../_shared/index.ts";
-import { guardianKinds, verificationMethods, appointingAuthorities } from "../../../domain/guardians.ts";
+import {
+  guardianKinds,
+  verificationMethods,
+  appointingAuthorities,
+} from "../../../domain/guardians.ts";
 import { organizations } from "../auth/index.ts";
 import { noticeVersions } from "../notices/index.ts";
 import { processingActivities } from "../ropa/index.ts";
@@ -48,6 +53,24 @@ export const dataPrincipals = pgTable(
     createdAt: createdAt(),
     /** Set when PII is erased (DPDPA s.12). Row stays so consents/audit keep referential integrity. */
     erasedAt: timestamp("erased_at", { withTimezone: true }),
+    /**
+     * When the person last approached the fiduciary (used the service, consented, exercised a
+     * right). Drives inactivity erasure (r.8(1)) and the one-year floor (r.8(3)).
+     */
+    lastActiveAt: timestamp("last_active_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** Erasure scheduled by the retention sweep, after the r.8(2) notice. */
+    erasureScheduledFor: timestamp("erasure_scheduled_for", {
+      withTimezone: true,
+    }),
+    erasureReason: text("erasure_reason"),
+    erasureNoticeSentAt: timestamp("erasure_notice_sent_at", {
+      withTimezone: true,
+    }),
+    /** s.8(7): retention required by law — no scheduled erasure until this date. */
+    holdUntil: date("hold_until"),
+    holdReason: text("hold_reason"),
   },
   (t) => [
     unique("data_principals_org_id_uq").on(t.orgId, t.id),
@@ -87,7 +110,9 @@ export const purposes = pgTable(
     involvesTracking: boolean("involves_tracking").notNull().default(false),
     active: boolean("active").notNull().default(true),
     /** The ROPA processing activity this consent purpose belongs to. */
-    processingActivityId: uuid("processing_activity_id").references(() => processingActivities.id),
+    processingActivityId: uuid("processing_activity_id").references(
+      () => processingActivities.id,
+    ),
     createdAt: createdAt(),
   },
   (t) => [
@@ -98,7 +123,10 @@ export const purposes = pgTable(
 );
 
 /** Consent Managers the org accepts consents through (DPDPA s.6(7)-(9); DPDP Rules r.4). */
-export const consentManagerStatus = pgEnum("consent_manager_status", ["active", "suspended"]);
+export const consentManagerStatus = pgEnum("consent_manager_status", [
+  "active",
+  "suspended",
+]);
 
 export const consentManagers = pgTable(
   "consent_managers",
@@ -119,8 +147,14 @@ export const consentManagers = pgTable(
   ],
 );
 
-export const guardianVerificationMethod = pgEnum("guardian_verification_method", verificationMethods);
-export const appointingAuthority = pgEnum("appointing_authority", appointingAuthorities);
+export const guardianVerificationMethod = pgEnum(
+  "guardian_verification_method",
+  verificationMethods,
+);
+export const appointingAuthority = pgEnum(
+  "appointing_authority",
+  appointingAuthorities,
+);
 
 /** Due diligence that the person consenting for a child / ward is who they say (r.10, r.11). */
 export const guardianVerifications = pgTable(
@@ -139,7 +173,9 @@ export const guardianVerifications = pgTable(
     /** Token / order reference. Cleared on erasure. Never an identity number. */
     reference: text("reference"),
     verifiedBy: text("verified_by").notNull(),
-    verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull().defaultNow(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (t) => [
@@ -180,7 +216,9 @@ export const consents = pgTable(
     /** Language the notice was presented in (English or an 8th Schedule language). */
     language: text("language").notNull(),
     channel: text("channel").notNull(),
-    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
     withdrawalReason: text("withdrawal_reason"),
@@ -210,14 +248,20 @@ export const consents = pgTable(
       columns: [t.orgId, t.consentManagerId],
       foreignColumns: [consentManagers.orgId, consentManagers.id],
     }),
-    check("consents_consent_manager_ck", sql`(${t.channel} = 'consent_manager') = (${t.consentManagerId} IS NOT NULL)`),
+    check(
+      "consents_consent_manager_ck",
+      sql`(${t.channel} = 'consent_manager') = (${t.consentManagerId} IS NOT NULL)`,
+    ),
     index("consents_principal_idx").on(t.orgId, t.principalId),
     index("consents_purpose_idx").on(t.orgId, t.purposeId),
     // At most one live consent per principal+purpose.
     uniqueIndex("consents_active_uq")
       .on(t.orgId, t.principalId, t.purposeId)
       .where(sql`${t.status} = 'granted'`),
-    check("consents_withdrawn_ck", sql`(${t.status} = 'withdrawn') = (${t.withdrawnAt} IS NOT NULL)`),
+    check(
+      "consents_withdrawn_ck",
+      sql`(${t.status} = 'withdrawn') = (${t.withdrawnAt} IS NOT NULL)`,
+    ),
   ],
 );
 

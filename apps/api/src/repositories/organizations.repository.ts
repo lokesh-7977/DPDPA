@@ -5,7 +5,7 @@ export type NewOrganization = typeof organizations.$inferInsert;
 export type OrganizationPatch = Partial<
   Pick<
     NewOrganization,
-    "name" | "legalName" | "dpoName" | "dpoEmail" | "grievanceEmail" | "isSdf" | "rightsResponseDays" | "rightsIdentifierHint"
+    "name" | "legalName" | "dpoName" | "dpoEmail" | "grievanceEmail" | "isSdf" | "rightsResponseDays" | "rightsIdentifierHint" | "thirdScheduleClass"
   >
 >;
 

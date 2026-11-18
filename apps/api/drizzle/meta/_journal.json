@@ -190,6 +190,13 @@
       "when": 1794989599965,
       "tag": "0026_transfers",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794990207388,
+      "tag": "0027_retention",
+      "breakpoints": true
     }
   ]
 }

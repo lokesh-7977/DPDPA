@@ -12,6 +12,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { orgRoles } from "../../../domain/auth.ts";
+import { thirdScheduleClasses } from "../../../domain/retention.ts";
 import { createdAt, updatedAt } from "../_shared/index.ts";
 
 /**
@@ -50,6 +51,10 @@ export const users = pgTable(
 );
 
 export const orgStatus = pgEnum("org_status", ["active", "suspended"]);
+export const thirdScheduleClass = pgEnum(
+  "third_schedule_class",
+  thirdScheduleClasses,
+);
 
 /** A customer company (Data Fiduciary) — the tenant. */
 export const organizations = pgTable(
@@ -70,6 +75,8 @@ export const organizations = pgTable(
     rightsResponseDays: integer("rights_response_days").notNull().default(30),
     /** What requesters must provide to be identified (r.14(1)(b)), e.g. "registered email or customer id". */
     rightsIdentifierHint: text("rights_identifier_hint"),
+    /** DPDP Rules Third Schedule class (e-commerce, online gaming, social media) — inactivity erasure (r.8(1)). */
+    thirdScheduleClass: thirdScheduleClass("third_schedule_class"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -162,7 +169,9 @@ export const breakGlassSessions = pgTable(
       .notNull()
       .references(() => organizations.id),
     reason: text("reason").notNull(),
-    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
   },
@@ -188,7 +197,10 @@ export const apiKeys = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("api_keys_prefix_uq").on(t.prefix), index("api_keys_org_idx").on(t.orgId)],
+  (t) => [
+    uniqueIndex("api_keys_prefix_uq").on(t.prefix),
+    index("api_keys_org_idx").on(t.orgId),
+  ],
 );
 
 export type ApiKey = typeof apiKeys.$inferSelect;
