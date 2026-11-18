@@ -196,13 +196,12 @@ const underPath = (path: string, prefix: string) =>
   path === prefix ||
   path.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`);
 
-/** Why a request may not be made, or null when it may. Every scan request goes through this. */
-export function scanBlockedReason(
+/** Why nothing may be scanned under this authorization right now (scan must stop), or null. */
+export function authorizationBlockedReason(
   v: {
     domain: GateDomain;
     authorization: GateAuthorization;
     scanType: ScanType;
-    url: string;
   },
   now: Date,
 ): string | null {
@@ -213,6 +212,16 @@ export function scanBlockedReason(
     return "Outside the authorized window";
   if (!a.scanTypes.includes(v.scanType))
     return `Scan type ${v.scanType} is not authorized`;
+  return null;
+}
+
+/** Why this URL may not be requested (skip it), or null. */
+export function urlBlockedReason(v: {
+  domain: GateDomain;
+  authorization: GateAuthorization;
+  url: string;
+}): string | null {
+  const a = v.authorization;
   let url: URL;
   try {
     url = new URL(v.url);
@@ -226,10 +235,28 @@ export function scanBlockedReason(
     return "Only the default https port is scanned";
   if (url.hostname.toLowerCase() !== v.domain.hostname)
     return "URL is not on the verified domain";
-  const path = decodeURIComponent(url.pathname);
+  let path: string;
+  try {
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    return "Not a valid URL";
+  }
   if (path.includes("..")) return "Path traversal is not scanned";
   if (!a.includePaths.some((p) => underPath(path, p)))
     return "Path is outside the included paths";
   if (a.excludePaths.some((p) => underPath(path, p))) return "Path is excluded";
   return null;
+}
+
+/** Why a request may not be made, or null when it may. Every scan request goes through this. */
+export function scanBlockedReason(
+  v: {
+    domain: GateDomain;
+    authorization: GateAuthorization;
+    scanType: ScanType;
+    url: string;
+  },
+  now: Date,
+): string | null {
+  return authorizationBlockedReason(v, now) ?? urlBlockedReason(v);
 }

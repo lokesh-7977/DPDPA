@@ -112,7 +112,7 @@ Detailed plans for finished/started phases live next to this file in `docs/plans
 | 3b | SARIF upload `POST /ci/code-scans/sarif` → elements/flows/findings + ROPA suggestions (`2026-11-17-hounddog-ci-ingestion.md`) | ✅ (stays synchronous: CI needs the verdict) |
 | 3c | Findings triage + ROPA suggestions + remediation tasks (assign, due dates, wont_do risk decisions, auto-close on fixing scan, overdue digest) | ✅ |
 | 4a | Domain verification (DNS TXT / .well-known, monthly re-check) + signed scan authorizations + the scan gate re-checked per request | ✅ |
-| 4b | Public crawl × 3 consent states + DPDPA web checks (pre-consent trackers, PII to 3rd parties, forms/notice, banner languages, withdrawal parity, grievance/DPO, age gating, rights-request flows, breach info) | ❌ |
+| 4b | Public website crawl (plain HTTP, pre-consent state) + DPDPA web findings; accept / reject consent states need a browser engine (later) | ✅ (HTTP engine) |
 | 4c | Credential vault + login flows + authenticated crawl | ❌ |
 | 5 | Security checks (passive + safe active) | ❌ |
 | 6 | Scoring (`domain/scoring.ts` pure), assessments, PDF reports, evidence (DPDPA + AIGIS controls) | ❌ |

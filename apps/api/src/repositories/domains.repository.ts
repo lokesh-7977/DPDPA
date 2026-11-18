@@ -105,6 +105,17 @@ export const domainsRepository = {
     return row ?? null;
   },
 
+  async authorization(ex: Executor, orgId: string, id: string) {
+    const [row] = await ex
+      .select()
+      .from(scanAuthorizations)
+      .where(
+        and(eq(scanAuthorizations.orgId, orgId), eq(scanAuthorizations.id, id)),
+      )
+      .limit(1);
+    return row ?? null;
+  },
+
   async revokeAuthorization(
     ex: Executor,
     orgId: string,

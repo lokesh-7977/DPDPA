@@ -10,13 +10,21 @@ import type { JobPayloads } from "../services/queue.service.ts";
 import { vendorsService } from "../services/vendors.service.ts";
 import { retentionService } from "../services/retention.service.ts";
 import { domainsService } from "../services/domains.service.ts";
+import { webScansService } from "../services/web-scans.service.ts";
 import { ropaService } from "../services/ropa.service.ts";
 
 /** One handler per job type. Return value is stored as the job's result (ids/counts only). */
-type Handler<T extends JobType> = (
-  tx: Tx,
-  job: Job & { payload: JobPayloads[T] },
-) => Promise<Record<string, unknown>>;
+type Handler<T extends JobType> =
+  | ((
+      tx: Tx,
+      job: Job & { payload: JobPayloads[T] },
+    ) => Promise<Record<string, unknown>>)
+  /** Runs outside any transaction (long network work); writes in its own transactions. */
+  | {
+      detached: (
+        job: Job & { payload: JobPayloads[T] },
+      ) => Promise<Record<string, unknown>>;
+    };
 
 const WORKER: Actor = { type: "system", id: "system:worker" };
 const EXPORT_RETENTION_DAYS = 90;
@@ -91,6 +99,12 @@ export const handlers: { [T in JobType]: Handler<T> } = {
         Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
       ),
     ),
+
+  // Phase 4b: website crawl in chunks, outside any transaction.
+  "web_scan.crawl": {
+    detached: (job) =>
+      webScansService.crawl(job.orgId!, job.payload.scanId, job.payload.chunk),
+  },
 };
 
 export const isJobType = (t: string): t is JobType =>
