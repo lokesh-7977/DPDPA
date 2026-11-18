@@ -12,6 +12,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  unique,
 } from "drizzle-orm/pg-core";
 import {
   activityStatuses,
@@ -64,6 +65,7 @@ export const recipients = pgTable(
   },
   (t) => [
     uniqueIndex("recipients_uq").on(t.orgId, t.name),
+    unique("recipients_org_id_uq").on(t.orgId, t.id),
     check("recipients_country_ck", sql`${t.country} ~ '^[A-Z]{2}$'`),
   ],
 );
@@ -84,7 +86,10 @@ export const systems = pgTable(
     assetId: uuid("asset_id").references(() => assets.id),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("systems_uq").on(t.orgId, t.name), index("systems_asset_idx").on(t.assetId)],
+  (t) => [
+    uniqueIndex("systems_uq").on(t.orgId, t.name),
+    index("systems_asset_idx").on(t.assetId),
+  ],
 );
 
 export const legalBasisEnum = pgEnum("ropa_legal_basis", legalBases);
@@ -116,7 +121,10 @@ export const processingActivities = pgTable(
   (t) => [
     uniqueIndex("processing_activities_uq").on(t.orgId, t.code),
     index("processing_activities_status_idx").on(t.orgId, t.status),
-    check("processing_activities_retention_ck", sql`${t.retentionDays} IS NULL OR ${t.retentionDays} > 0`),
+    check(
+      "processing_activities_retention_ck",
+      sql`${t.retentionDays} IS NULL OR ${t.retentionDays} > 0`,
+    ),
   ],
 );
 
@@ -184,7 +192,9 @@ export const processingActivityVersions = pgTable(
     versionNo: integer("version_no").notNull(),
     snapshot: jsonb("snapshot").$type<ActivitySnapshot>().notNull(),
     submittedBy: uuid("submitted_by").references(() => users.id),
-    submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     decision: versionDecision("decision").notNull().default("pending"),
     decidedBy: uuid("decided_by").references(() => users.id),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
@@ -199,14 +209,28 @@ export const suggestionType = pgEnum("ropa_suggestion_type", [
   "add_system",
   "add_ai_system",
 ]);
-export const suggestionStatus = pgEnum("ropa_suggestion_status", ["pending", "accepted", "rejected"]);
+export const suggestionStatus = pgEnum("ropa_suggestion_status", [
+  "pending",
+  "accepted",
+  "rejected",
+]);
 
 export type SuggestionPayload =
-  | { type: "add_data_category"; code: string; name: string; sensitivity: string }
+  | {
+      type: "add_data_category";
+      code: string;
+      name: string;
+      sensitivity: string;
+    }
   | { type: "add_recipient"; name: string; sinkType: string }
   | { type: "add_system"; name: string; assetId: string }
   /** AIGIS: an AI/LLM integration found in code that is not in the AI register yet. */
-  | { type: "add_ai_system"; name: string; vendorName: string; assetId: string };
+  | {
+      type: "add_ai_system";
+      name: string;
+      vendorName: string;
+      assetId: string;
+    };
 
 /** Proposed ROPA additions discovered by scans (e.g. HoundDog found data going to OpenAI). */
 export const ropaSuggestions = pgTable(
@@ -238,5 +262,6 @@ export type DataCategory = typeof dataCategories.$inferSelect;
 export type Recipient = typeof recipients.$inferSelect;
 export type SystemRow = typeof systems.$inferSelect;
 export type ProcessingActivity = typeof processingActivities.$inferSelect;
-export type ProcessingActivityVersion = typeof processingActivityVersions.$inferSelect;
+export type ProcessingActivityVersion =
+  typeof processingActivityVersions.$inferSelect;
 export type RopaSuggestion = typeof ropaSuggestions.$inferSelect;

@@ -31,6 +31,7 @@ import {
   rightsIntegrationRoutes,
   rightsRoutes,
 } from "./routes/rights.routes.ts";
+import { vendorsRoutes } from "./routes/vendors.routes.ts";
 import { ropaRoutes } from "./routes/ropa.routes.ts";
 
 const base = createRouter();
@@ -73,7 +74,7 @@ const largeBodyLimit = bodyLimit({
   onError: tooLarge,
 });
 const EVIDENCE_PATH =
-  /^\/orgs\/[^/]+\/(?:breaches\/[^/]+\/evidence|compliance\/controls\/[^/]+\/[^/]+\/evidence-files)$/;
+  /^\/orgs\/[^/]+\/(?:breaches\/[^/]+\/evidence|compliance\/controls\/[^/]+\/[^/]+\/evidence-files|vendor-contracts\/[^/]+\/file)$/;
 base.use("*", (c, next) =>
   (c.req.path === "/ci/code-scans/sarif" || EVIDENCE_PATH.test(c.req.path)
     ? largeBodyLimit
@@ -108,6 +109,7 @@ const routes = base
   .route("/orgs", complianceRoutes)
   .route("/orgs", noticesRoutes)
   .route("/orgs", guardiansRoutes)
+  .route("/orgs", vendorsRoutes)
   .route("/public", publicNoticesRoutes)
   .route("/public", publicRightsRoutes)
   .route("/integrations", rightsIntegrationRoutes)

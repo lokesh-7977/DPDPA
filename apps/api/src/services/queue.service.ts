@@ -20,6 +20,7 @@ export type JobPayloads = {
   "breach.deadline_alerts": { hour: string };
   "breach.notify_principals": { breachId: string };
   "controls.review_digest": { day: string };
+  "vendors.contract_refresh": { day: string };
 };
 
 export const queueService = {
@@ -91,6 +92,15 @@ export const queueService = {
         { day },
         {
           idempotencyKey: `controls.review_digest:${day}`,
+        },
+      );
+      await queueService.enqueue(
+        tx,
+        "vendors.contract_refresh",
+        null,
+        { day },
+        {
+          idempotencyKey: `vendors.contract_refresh:${day}`,
         },
       );
     });

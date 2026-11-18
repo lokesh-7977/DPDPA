@@ -120,7 +120,7 @@ Detailed plans for finished/started phases live next to this file in `docs/plans
 | 8a | Rights requests: public portal + email verification, API (`rights:submit`) + staff intake, deadlines (r.14(3)), assignment, history, emails, erasure, access summary pack (s.11), correction (s.12(2)), nominations (s.14, r.14(4)), deadline digest | ✅ |
 | 8b | Breach management: register, severity, timeline, Board initial intimation + 72 h detailed report (drafts, recorded notices, extensions), hourly alerts, notices to affected Data Principals (r.7(1)), evidence uploads | ✅ |
 | 8c | Notices & consent (API only, no widget / banner): notice builder with versions + 23 languages + r.3 check, public notice API, consent tied to notice version, guardian verification (r.10, r.11), no tracking consent from children (s.9(3)), Consent Manager registry + channel (r.4) | ✅ |
-| 8d | Vendor (processor) assessments + cross-border transfer register | ❌ |
+| 8d | Vendor (processor) assessments + contracts; cross-border transfer register | 🟡 part 1 ✅ (assessments, contracts, contract-in-force refresh); part 2: transfer register (s.16, r.15), restricted countries, review / expiry digest, upload rate limits |
 | 8e | Retention schedules + erasure jobs | ❌ |
 | 9a | Program setup interview → applicable controls, policies, evidence backlog | ❌ |
 | 9b | Policies: templates, AI drafts, approval, versions, employee attestation | ❌ |
