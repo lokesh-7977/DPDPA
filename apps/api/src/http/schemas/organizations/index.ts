@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { thirdScheduleClasses } from "../../../domain/retention.ts";
 import type { Organization } from "../../../db/schemas/index.ts";
 
 /** Printable text only: org names are shown in invitation emails (no CR/LF or invisible chars). */
@@ -8,7 +9,10 @@ const NoControlChars = (max: number) =>
     .trim()
     .min(1)
     .max(max)
-    .regex(/^[^\p{Cc}\p{Cf}]*$/u, "must not contain control or invisible characters");
+    .regex(
+      /^[^\p{Cc}\p{Cf}]*$/u,
+      "must not contain control or invisible characters",
+    );
 
 export const OrganizationSchema = z
   .object({
@@ -24,6 +28,7 @@ export const OrganizationSchema = z
     /** Published response period for rights requests and grievances (r.14(3)). */
     rightsResponseDays: z.number().int(),
     rightsIdentifierHint: z.string().nullable(),
+    thirdScheduleClass: z.enum(thirdScheduleClasses).nullable(),
     createdAt: z.iso.datetime(),
   })
   .openapi("Organization");
@@ -33,10 +38,16 @@ export const CreateOrganizationSchema = z
     name: NoControlChars(200).openapi({ example: "Acme India Pvt Ltd" }),
     slug: z
       .string()
-      .regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/, "lowercase letters, digits, hyphens")
+      .regex(
+        /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/,
+        "lowercase letters, digits, hyphens",
+      )
       .openapi({ example: "acme-india" }),
     legalName: NoControlChars(300).optional(),
-    adminEmail: z.email().max(254).openapi({ description: "Invited as the first org_admin" }),
+    adminEmail: z
+      .email()
+      .max(254)
+      .openapi({ description: "Invited as the first org_admin" }),
   })
   .openapi("CreateOrganization");
 
@@ -65,6 +76,8 @@ export const UpdateOrganizationSchema = z
     rightsResponseDays: z.number().int().min(1).max(90),
     /** What requesters must provide to be identified (r.14(1)(b)). */
     rightsIdentifierHint: NoControlChars(300).nullable(),
+    /** DPDP Rules Third Schedule class: three-year inactivity erasure applies (r.8(1)). */
+    thirdScheduleClass: z.enum(thirdScheduleClasses).nullable(),
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, "Nothing to update")
@@ -72,7 +85,11 @@ export const UpdateOrganizationSchema = z
 
 export const BreakGlassRequestSchema = z
   .object({
-    reason: z.string().min(10).max(1000).openapi({ example: "Customer ticket #1234: consent export failing" }),
+    reason: z
+      .string()
+      .min(10)
+      .max(1000)
+      .openapi({ example: "Customer ticket #1234: consent export failing" }),
     minutes: z.number().int().min(5).max(60).default(30),
   })
   .openapi("BreakGlassRequest");
@@ -97,5 +114,6 @@ export const toOrganizationDto = (o: Organization) => ({
   grievanceEmail: o.grievanceEmail,
   rightsResponseDays: o.rightsResponseDays,
   rightsIdentifierHint: o.rightsIdentifierHint,
+  thirdScheduleClass: o.thirdScheduleClass,
   createdAt: o.createdAt.toISOString(),
 });

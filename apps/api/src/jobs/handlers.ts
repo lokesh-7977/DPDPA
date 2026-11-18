@@ -8,6 +8,7 @@ import { breachService } from "../services/breach.service.ts";
 import { notificationsService } from "../services/notifications.service.ts";
 import type { JobPayloads } from "../services/queue.service.ts";
 import { vendorsService } from "../services/vendors.service.ts";
+import { retentionService } from "../services/retention.service.ts";
 import { ropaService } from "../services/ropa.service.ts";
 
 /** One handler per job type. Return value is stored as the job's result (ids/counts only). */
@@ -66,6 +67,15 @@ export const handlers: { [T in JobType]: Handler<T> } = {
 
   "vendors.review_digest": (tx, job) =>
     vendorsService.reviewDigest(
+      tx,
+      new Date(
+        Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+      ),
+    ),
+
+  // s.8(7) / r.8: schedule (with the 48 h notice) and carry out erasures that have come due.
+  "retention.sweep": (tx, job) =>
+    retentionService.sweep(
       tx,
       new Date(
         Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),

@@ -11,6 +11,7 @@ import { guardiansRepository } from "../repositories/guardians.repository.ts";
 import { purposesRepository } from "../repositories/purposes.repository.ts";
 import { auditService } from "./audit.service.ts";
 import { publishedNoticeForConsent } from "./notices.service.ts";
+import { touchActivity } from "./retention.service.ts";
 
 export type GrantConsentInput = {
   principalId: string;
@@ -134,6 +135,8 @@ export const consentsService = {
         throw unprocessable("noticeVersion or noticeVersionId is required");
 
       // consents_active_uq enforces one live consent per principal+purpose (409 via the error mapper).
+      // Giving consent is approaching the fiduciary (r.8): refreshes activity, cancels any scheduled erasure.
+      await touchActivity(tx, ctx.orgId, principal.id);
       const consent = await consentsRepository.insert(tx, {
         ...input,
         noticeVersion,

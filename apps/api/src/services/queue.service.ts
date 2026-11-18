@@ -22,6 +22,7 @@ export type JobPayloads = {
   "controls.review_digest": { day: string };
   "vendors.contract_refresh": { day: string };
   "vendors.review_digest": { day: string };
+  "retention.sweep": { day: string };
 };
 
 export const queueService = {
@@ -111,6 +112,15 @@ export const queueService = {
         { day },
         {
           idempotencyKey: `vendors.review_digest:${day}`,
+        },
+      );
+      await queueService.enqueue(
+        tx,
+        "retention.sweep",
+        null,
+        { day },
+        {
+          idempotencyKey: `retention.sweep:${day}`,
         },
       );
     });

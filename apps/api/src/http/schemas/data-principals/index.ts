@@ -12,6 +12,13 @@ export const DataPrincipalSchema = z
     guardianKind: z.enum(["parent", "lawful_guardian"]).nullable(),
     createdAt: z.iso.datetime(),
     erasedAt: z.iso.datetime().nullable(),
+    /** Last time the person approached the fiduciary (r.8). */
+    lastActiveAt: z.iso.datetime(),
+    /** Erasure scheduled by the retention sweep (after the r.8(2) notice). */
+    erasureScheduledFor: z.iso.datetime().nullable(),
+    erasureReason: z.string().nullable(),
+    /** s.8(7) legal hold: no scheduled erasure until this date. */
+    holdUntil: z.string().nullable(),
   })
   .openapi("DataPrincipal");
 
@@ -32,10 +39,14 @@ export const CreateDataPrincipalSchema = z
     message: "guardianId is required for a child",
     path: ["guardianId"],
   })
-  .refine((v) => v.isChild || !v.guardianId || v.guardianKind === "lawful_guardian", {
-    message: "An adult can only have a lawful guardian (guardianKind: lawful_guardian, r.11)",
-    path: ["guardianKind"],
-  })
+  .refine(
+    (v) => v.isChild || !v.guardianId || v.guardianKind === "lawful_guardian",
+    {
+      message:
+        "An adult can only have a lawful guardian (guardianKind: lawful_guardian, r.11)",
+      path: ["guardianKind"],
+    },
+  )
   .openapi("CreateDataPrincipal");
 
 export const ErasureResultSchema = z
@@ -60,4 +71,8 @@ export const toDataPrincipalDto = (p: DataPrincipal) => ({
   guardianKind: p.guardianKind,
   createdAt: p.createdAt.toISOString(),
   erasedAt: p.erasedAt?.toISOString() ?? null,
+  lastActiveAt: p.lastActiveAt.toISOString(),
+  erasureScheduledFor: p.erasureScheduledFor?.toISOString() ?? null,
+  erasureReason: p.erasureReason,
+  holdUntil: p.holdUntil,
 });

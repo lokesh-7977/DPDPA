@@ -10,6 +10,7 @@ export const jobTypes = [
   "controls.review_digest",
   "vendors.contract_refresh",
   "vendors.review_digest",
+  "retention.sweep",
 ] as const;
 export type JobType = (typeof jobTypes)[number];
 

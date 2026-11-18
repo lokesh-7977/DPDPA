@@ -104,7 +104,11 @@ export const dataPrincipalsService = {
  * Erasure inside the caller's transaction (e.g. a rights request records its own history
  * in the same commit). Callers check permissions first.
  */
-export async function eraseInTx(tx: Tx, ctx: TenantContext, id: string) {
+export async function eraseInTx(
+  tx: Tx,
+  ctx: Pick<TenantContext, "orgId" | "actor">,
+  id: string,
+) {
   const principal = await dataPrincipalsRepository.findById(tx, ctx.orgId, id, {
     forUpdate: true,
   });
