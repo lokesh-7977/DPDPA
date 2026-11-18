@@ -85,7 +85,8 @@ export const domainsService = {
   },
 
   add(ctx: OrgContext, hostname: string) {
-    assertPermission(ctx, "data.write");
+    // Only the org admin adds the organization's own websites (nobody else, no API key).
+    assertPermission(ctx, "org.manage");
     const host = normaliseHostname(hostname);
     return db.transaction(async (tx) => {
       const d = await domainsRepository.insert(tx, {
@@ -109,7 +110,7 @@ export const domainsService = {
 
   /** Runs the check (network, outside any transaction), then records it. */
   async verify(ctx: OrgContext, id: string, method: VerificationMethod) {
-    assertPermission(ctx, "data.write");
+    assertPermission(ctx, "org.manage");
     const d = await domainsRepository.find(db, ctx.org.orgId, id);
     if (!d) throw notFound("Domain not found");
     const result = await domainVerifier.check(method, d.hostname, d.token);
