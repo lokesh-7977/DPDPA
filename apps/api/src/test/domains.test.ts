@@ -149,10 +149,35 @@ describe("rules (pure)", () => {
 });
 
 describe("domains and scan authorizations", () => {
+  test("only the org admin can add or verify the organization's websites", async () => {
+    for (const token of [editorToken, dpoToken]) {
+      assert.equal(
+        (
+          await t.call("POST", P("/domains"), token, {
+            hostname: "shop.acme.in",
+          })
+        ).status,
+        403,
+      );
+    }
+    const key = (
+      await t.call("POST", P("/api-keys"), org.adminToken, {
+        name: "CI",
+        scopes: ["scans:upload"],
+      })
+    ).body.key;
+    assert.equal(
+      (await t.call("POST", P("/domains"), key, { hostname: "shop.acme.in" }))
+        .status,
+      401,
+      "no API keys",
+    );
+  });
+
   test("add: validated, unique per org", async () => {
     assert.equal(
       (
-        await t.call("POST", P("/domains"), editorToken, {
+        await t.call("POST", P("/domains"), org.adminToken, {
           hostname: "192.168.0.10",
         })
       ).status,
@@ -160,13 +185,13 @@ describe("domains and scan authorizations", () => {
     );
     assert.equal(
       (
-        await t.call("POST", P("/domains"), editorToken, {
+        await t.call("POST", P("/domains"), org.adminToken, {
           hostname: "nas.local",
         })
       ).status,
       422,
     );
-    const ok = await t.call("POST", P("/domains"), editorToken, {
+    const ok = await t.call("POST", P("/domains"), org.adminToken, {
       hostname: "Shop.Acme.in",
     });
     assert.equal(ok.status, 201, JSON.stringify(ok.body));
@@ -180,7 +205,7 @@ describe("domains and scan authorizations", () => {
     assert.match(ok.body.instructions.dns_txt.value, /^dpdpa-verification=/);
     assert.equal(
       (
-        await t.call("POST", P("/domains"), editorToken, {
+        await t.call("POST", P("/domains"), org.adminToken, {
           hostname: "shop.acme.in",
         })
       ).status,
@@ -192,7 +217,7 @@ describe("domains and scan authorizations", () => {
     const fail = await t.call(
       "POST",
       P(`/domains/${domainId}/verify`),
-      editorToken,
+      org.adminToken,
       { method: "dns_txt" },
     );
     assert.equal(fail.body.result.ok, false);
@@ -201,7 +226,7 @@ describe("domains and scan authorizations", () => {
     const ok = await t.call(
       "POST",
       P(`/domains/${domainId}/verify`),
-      editorToken,
+      org.adminToken,
       { method: "dns_txt" },
     );
     assert.equal(ok.body.domain.status, "verified");
@@ -274,7 +299,7 @@ describe("domains and scan authorizations", () => {
       ).status,
       422,
     );
-    const pending = await t.call("POST", P("/domains"), editorToken, {
+    const pending = await t.call("POST", P("/domains"), org.adminToken, {
       hostname: "blog.acme.in",
     });
     assert.equal(
@@ -363,7 +388,7 @@ describe("domains and scan authorizations", () => {
     );
     assert.equal(c.body.reason, "Domain ownership is not verified");
     published.add("dns_txt:shop.acme.in");
-    await t.call("POST", P(`/domains/${domainId}/verify`), editorToken, {
+    await t.call("POST", P(`/domains/${domainId}/verify`), org.adminToken, {
       method: "dns_txt",
     });
   });

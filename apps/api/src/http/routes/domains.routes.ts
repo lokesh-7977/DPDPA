@@ -153,7 +153,7 @@ const addRoute = createRoute({
   ...base,
   method: "post",
   path: "/{orgId}/domains",
-  summary: "Add a domain (public domain names only; no IPs or internal hosts)",
+  summary: "Add one of the organization's own websites (org_admin only; public domain names, no IPs or internal hosts)",
   request: {
     params: OrgIdParam,
     body: jsonBody(
@@ -198,7 +198,7 @@ const verifyRoute = createRoute({
   ...base,
   method: "post",
   path: "/{orgId}/domains/{domainId}/verify",
-  summary: "Check ownership now (DNS TXT record or .well-known file)",
+  summary: "Prove ownership now: DNS TXT record or .well-known file (org_admin only)",
   request: {
     params: DomainParams,
     body: jsonBody(z.object({ method: z.enum(verificationMethods) }), "Method"),
