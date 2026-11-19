@@ -27,14 +27,14 @@ Validated at start-up (`apps/api/src/config/env.ts`). In production the API refu
 | `DATABASE_URL` | Required (embedded PGlite is for dev / tests only) |
 | `JWT_SECRET` | Random, ≥ 43 characters, not the example value |
 | `AUDIT_HMAC_KEY` | Its own random secret (pseudonymises IP / User-Agent in the audit trail) |
-| `CREDENTIAL_VAULT_KEY` | 32 random bytes, base64 (`openssl rand -base64 32`); encrypts website test-account logins |
+| `CREDENTIAL_VAULT_KEY` | 32 random bytes, standard padded base64 (`openssl rand -base64 32`, 44 chars); encrypts website test-account logins. A url-safe or unpadded key is refused at boot: re-encode the same bytes as standard base64 (no data change). |
 | `RATE_LIMIT_ENABLED` | `true` |
 | `RATE_LIMIT_STORE` | `postgres` (limits shared by every API instance) |
 | `MAIL_DRIVER` | `resend`, with `RESEND_API_KEY` and `MAIL_FROM` on a verified domain |
 | `APP_URL` | `https://…` (links in emails) |
 | `STORAGE_DRIVER` | Not `memory`; `fs` with `STORAGE_DIR` on durable storage |
 
-Also: `CORS_ORIGINS` (web app origins), `TRUST_PROXY=true` only behind a known reverse proxy, `LOG_LEVEL`, `WORKER_POLL_MS`, `WORKER_BATCH`, token TTLs. Document new settings in `apps/api/.env.example`; never commit real values.
+Also: `CORS_ORIGINS` (web app origins; in production required, comma-separated exact `https://host[:port]` origins, no path or trailing slash, no localhost), `TRUST_PROXY=true` only behind a known reverse proxy, `LOG_LEVEL`, `WORKER_POLL_MS`, `WORKER_BATCH`, token TTLs. Document new settings in `apps/api/.env.example`; never commit real values.
 
 ## Deploy
 
@@ -46,6 +46,21 @@ Also: `CORS_ORIGINS` (web app origins), `TRUST_PROXY=true` only behind a known r
 6. Check `/health/ready` on each instance and the worker logs ("Worker started").
 
 First install only: `pnpm --filter api create-super-admin <email> "<Name>"`.
+
+### Index migrations on a populated database
+
+Migrations run in one transaction, so `CREATE INDEX` there is not concurrent and blocks writes to
+the table while it builds (e.g. 0052 on `data_principals`). Before launch this does not matter.
+Once a table is large (~1M rows), build the index first by hand, then run the migration:
+
+```sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS data_principals_preview_idle_idx ON data_principals (org_id, last_active_at, id) WHERE erased_at IS NULL AND erasure_scheduled_for IS NULL;
+-- check: SELECT indexrelid::regclass, indisvalid FROM pg_index WHERE NOT indisvalid;
+```
+
+An INVALID index (failed concurrent build) must be dropped and rebuilt; otherwise run the migration
+in a low-traffic window. New index migrations use `CREATE INDEX IF NOT EXISTS` so a hand-built
+index is kept.
 
 ## Shutdown
 
@@ -77,3 +92,4 @@ Daily `system.cleanup`: deletes expired rate-limit buckets; fails web scans with
 - Rate limits per network on login, public pages, rights requests, auditor sign-in; per user on uploads. Keys are keyed hashes, never raw IPs.
 - Logs are JSON (pino) with personal data redacted; the access log records paths only.
 - Website scans only reach domains whose ownership is verified, under a signed authorization, through the scan gate re-checked on every request.
+- Emailed links (auditor rooms `/auditor#token=`, invitations `#token`) carry their token in the URL fragment, which browsers never send to servers. The web pages that receive them must: read `location.hash` once and clear it at once (`history.replaceState(null, "", location.pathname)`); send the token only in a POST body; keep any session token in memory or `sessionStorage` (never `localStorage`); load no third-party scripts or analytics; send `Referrer-Policy: no-referrer`; and never pass the token to error reporting.

@@ -39,6 +39,7 @@ import {
 } from "../repositories/rights.repository.ts";
 import { artifactsService } from "./artifacts.service.ts";
 import { auditService } from "./audit.service.ts";
+import { resetErasureNotice } from "./retention.service.ts";
 import { eraseInTx } from "./data-principals.service.ts";
 import { mailer, type MailMessage } from "./mailer.ts";
 import { rightsEmails } from "./rights-emails.ts";
@@ -568,6 +569,8 @@ export const rightsService = {
         principal.id,
         patch,
       );
+      if ("email" in patch && patch.email !== principal.email)
+        await resetErasureNotice(tx, ctx.org.orgId, principal.id, ctx.actor);
       // Field names only: old values are not kept (the point of a correction).
       await event(tx, r, ctx.actor, "correction_applied", {
         note: `Corrected: ${fields.join(", ")}`,

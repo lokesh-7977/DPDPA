@@ -103,7 +103,7 @@ describe("auditor rooms (org side)", () => {
     assert.equal(r.status, 201, JSON.stringify(r.body));
     grantId = r.body.id;
     assert.equal(r.body.email, "auditor@firm.test");
-    assert.match(memoryOutbox.at(-1)!.text, /auditor\?token=/);
+    assert.match(memoryOutbox.at(-1)!.text, /auditor#token=/);
     assert.equal(
       (
         await t.call(
@@ -237,6 +237,33 @@ describe("auditor room (auditor side)", () => {
       t.db.execute(sql`DELETE FROM auditor_access_log`),
       (e: Error & { cause?: Error }) =>
         /append-only/.test(e.cause?.message ?? e.message),
+    );
+  });
+
+  test("a pending link is not cancelled by a new request", async () => {
+    await t.call(
+      "POST",
+      P(`/auditor-rooms/${roomId}/invites`),
+      org.adminToken,
+      { email: "third@firm.test", name: "T. Rao" },
+    );
+    const original = linkTokenFor("third@firm.test");
+    memoryOutbox.length = 0;
+    assert.equal(
+      (
+        await t.call("POST", "/auditor/request-link", undefined, {
+          roomId,
+          email: "third@firm.test",
+        })
+      ).status,
+      202,
+    );
+    assert.equal(memoryOutbox.length, 0, "no new link while one is fresh");
+    assert.equal(
+      (await t.call("POST", "/auditor/session", undefined, { token: original }))
+        .status,
+      200,
+      "the emailed link still works",
     );
   });
 

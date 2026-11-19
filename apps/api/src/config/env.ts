@@ -30,8 +30,11 @@ const schema = z.object({
   CREDENTIAL_VAULT_KEY: z
     .string()
     .refine(
-      (s) => Buffer.from(s, "base64").length === 32,
-      "CREDENTIAL_VAULT_KEY must be 32 bytes, base64",
+      (s) =>
+        /^[A-Za-z0-9+/]{43}=$/.test(s) &&
+        // Random 32-byte keys have ~31 distinct byte values; typed or repeated text has far fewer.
+        new Set(Buffer.from(s, "base64")).size >= 16,
+      "CREDENTIAL_VAULT_KEY must be 32 random bytes, base64 (openssl rand -base64 32)",
     )
     .optional(),
   /** Only trust X-Forwarded-For when running behind a known reverse proxy. */
@@ -134,6 +137,22 @@ if (env.NODE_ENV === "production") {
     problems.push("APP_URL must be https in production");
   if (env.STORAGE_DRIVER === "memory")
     problems.push("STORAGE_DRIVER=memory is not allowed in production");
+  // Explicit, exact https origins (scheme + host [+ port], no path); the localhost default fails.
+  const isHttpsOrigin = (o: string) => {
+    try {
+      const u = new URL(o);
+      return (
+        u.protocol === "https:" && u.origin === o && u.hostname !== "localhost"
+      );
+    } catch {
+      return false;
+    }
+  };
+  if (!env.CORS_ORIGINS.length || !env.CORS_ORIGINS.every(isHttpsOrigin)) {
+    problems.push(
+      "CORS_ORIGINS must be exact https origins (e.g. https://app.example.com) in production",
+    );
+  }
   if (problems.length) {
     bootLog.fatal({ problems }, "Invalid production environment");
     process.exit(1);

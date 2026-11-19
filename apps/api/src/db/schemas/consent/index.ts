@@ -84,6 +84,15 @@ export const dataPrincipals = pgTable(
     index("data_principals_retention_idx")
       .on(t.lastActiveAt, t.id)
       .where(sql`${t.erasedAt} IS NULL AND ${t.erasureScheduledFor} IS NULL`),
+    /** Retention preview (one org): idle unscheduled principals, and scheduled ones by date. */
+    index("data_principals_preview_idle_idx")
+      .on(t.orgId, t.lastActiveAt, t.id)
+      .where(sql`${t.erasedAt} IS NULL AND ${t.erasureScheduledFor} IS NULL`),
+    index("data_principals_preview_scheduled_idx")
+      .on(t.orgId, t.erasureScheduledFor, t.id)
+      .where(
+        sql`${t.erasedAt} IS NULL AND ${t.erasureScheduledFor} IS NOT NULL`,
+      ),
     /** Daily retention sweep: scheduled erasures by date. */
     index("data_principals_erasure_due_idx")
       .on(t.erasureScheduledFor)
