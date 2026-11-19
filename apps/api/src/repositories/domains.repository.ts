@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt, or, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, or } from "drizzle-orm";
 import {
   domainChecks,
   domains,
@@ -67,8 +67,8 @@ export const domainsRepository = {
       .limit(20);
   },
 
-  /** Verified domains of active orgs not checked since `before` (periodic re-check). Locked. */
-  dueForRecheck(ex: Executor, before: Date) {
+  /** Verified domains of active orgs not checked since `before` (periodic re-check), oldest first. */
+  dueForRecheck(ex: Executor, before: Date, limit: number) {
     return ex
       .select({ domain: domains })
       .from(domains)
@@ -80,7 +80,8 @@ export const domainsRepository = {
           or(isNull(domains.lastCheckedAt), lt(domains.lastCheckedAt, before)),
         ),
       )
-      .for("update", { of: domains, skipLocked: true });
+      .orderBy(asc(domains.lastCheckedAt))
+      .limit(limit);
   },
 
   // ─── Authorizations ────────────────────────────────────────────────────────

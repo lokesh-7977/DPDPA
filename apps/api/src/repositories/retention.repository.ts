@@ -1,4 +1,14 @@
-import { and, eq, inArray, isNotNull, isNull, lte } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   consents,
   dataPrincipals,
@@ -22,10 +32,16 @@ export type RetentionPatch = Partial<
 
 export const retentionRepository = {
   /**
-   * Principals that could fall due (not erased, not already scheduled, last active before
-   * `activeBefore`), in active orgs, with the org's Third Schedule class. Locked for the sweep.
+   * One page of principals that could fall due (not erased, not scheduled, last active before
+   * `activeBefore`) in active orgs, oldest activity first, after `cursor`. Not locked: each
+   * candidate is re-checked under a row lock before it is scheduled.
    */
-  candidates(ex: Executor, activeBefore: Date) {
+  candidates(
+    ex: Executor,
+    activeBefore: Date,
+    cursor: { lastActiveAt: Date; id: string } | null,
+    limit: number,
+  ) {
     return ex
       .select({
         principal: dataPrincipals,
@@ -39,13 +55,20 @@ export const retentionRepository = {
           isNull(dataPrincipals.erasedAt),
           isNull(dataPrincipals.erasureScheduledFor),
           lte(dataPrincipals.lastActiveAt, activeBefore),
+          cursor
+            ? sql`(${dataPrincipals.lastActiveAt}, ${dataPrincipals.id}) > (${cursor.lastActiveAt}, ${cursor.id})`
+            : undefined,
         ),
       )
-      .for("update", { of: dataPrincipals, skipLocked: true });
+      .orderBy(asc(dataPrincipals.lastActiveAt), asc(dataPrincipals.id))
+      .limit(limit);
   },
 
-  /** Scheduled erasures that have come due, locked. */
-  scheduledDue(ex: Executor, now: Date) {
+  /**
+   * Scheduled erasures that have come due, locked, a batch at a time. Someone with an email
+   * address is only erased once the r.8(2) notice is recorded as sent at least `noticeBefore`.
+   */
+  scheduledDue(ex: Executor, now: Date, noticeBefore: Date, limit: number) {
     return ex
       .select({
         principal: dataPrincipals,
@@ -59,8 +82,14 @@ export const retentionRepository = {
           isNull(dataPrincipals.erasedAt),
           isNotNull(dataPrincipals.erasureScheduledFor),
           lte(dataPrincipals.erasureScheduledFor, now),
+          or(
+            isNull(dataPrincipals.email),
+            lte(dataPrincipals.erasureNoticeSentAt, noticeBefore),
+          ),
         ),
       )
+      .orderBy(asc(dataPrincipals.erasureScheduledFor))
+      .limit(limit)
       .for("update", { of: dataPrincipals, skipLocked: true });
   },
 
@@ -113,6 +142,25 @@ export const retentionRepository = {
         ),
       );
     return new Set(rows.map((r) => r.guardianId!));
+  },
+
+  async findUnlocked(ex: Executor, orgId: string, id: string) {
+    const [row] = await ex
+      .select()
+      .from(dataPrincipals)
+      .where(and(eq(dataPrincipals.orgId, orgId), eq(dataPrincipals.id, id)))
+      .limit(1);
+    return row ?? null;
+  },
+
+  async find(ex: Executor, orgId: string, id: string) {
+    const [row] = await ex
+      .select()
+      .from(dataPrincipals)
+      .where(and(eq(dataPrincipals.orgId, orgId), eq(dataPrincipals.id, id)))
+      .limit(1)
+      .for("update");
+    return row ?? null;
   },
 
   async update(ex: Executor, orgId: string, id: string, patch: RetentionPatch) {

@@ -345,6 +345,7 @@ describe("policies", () => {
       .body.items;
     for (const a of [
       "policy.created",
+      "policy.edited",
       "policy.submitted",
       "policy.approved",
       "policy.rejected",

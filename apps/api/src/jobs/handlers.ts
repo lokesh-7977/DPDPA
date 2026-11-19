@@ -1,6 +1,6 @@
 import type { Job, Tx } from "../db/index.ts";
 import type { Actor } from "../domain/auth.ts";
-import type { JobType } from "../domain/jobs.ts";
+import type { JobType, Lease } from "../domain/jobs.ts";
 import { artifactsService } from "../services/artifacts.service.ts";
 import { complianceService } from "../services/compliance.service.ts";
 import { breachNoticesService } from "../services/breach-notices.service.ts";
@@ -26,6 +26,7 @@ type Handler<T extends JobType> =
   | {
       detached: (
         job: Job & { payload: JobPayloads[T] },
+        lease: Lease,
       ) => Promise<Record<string, unknown>>;
     };
 
@@ -86,27 +87,48 @@ export const handlers: { [T in JobType]: Handler<T> } = {
     ),
 
   // s.8(7) / r.8: schedule (with the 48 h notice) and carry out erasures that have come due.
-  "retention.sweep": (tx, job) =>
-    retentionService.sweep(
-      tx,
-      new Date(
-        Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+  // Detached: batches commit one by one; notices are their own jobs.
+  "retention.sweep": {
+    detached: (job, lease) =>
+      retentionService.sweep(
+        lease,
+        new Date(
+          Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+        ),
       ),
-    ),
+  },
+
+  // r.8(2) notice for one scheduled erasure: emailed outside any transaction, then recorded.
+  "retention.notice": {
+    detached: (job) =>
+      retentionService.sendNotice(
+        job.orgId!,
+        job.payload.principalId,
+        job.payload.scheduledFor,
+      ),
+  },
 
   // Phase 4a: verified domains are re-checked every 30 days; a failure blocks scans.
-  "domains.recheck": (tx, job) =>
-    domainsService.recheck(
-      tx,
-      new Date(
-        Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+  // Detached: DNS / HTTPS checks never run inside a DB transaction.
+  "domains.recheck": {
+    detached: (job, lease) =>
+      domainsService.recheck(
+        lease,
+        new Date(
+          Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+        ),
       ),
-    ),
+  },
 
   // Phase 4b: website crawl in chunks, outside any transaction.
   "web_scan.crawl": {
-    detached: (job) =>
-      webScansService.crawl(job.orgId!, job.payload.scanId, job.payload.chunk),
+    detached: (job, lease) =>
+      webScansService.crawl(
+        job.orgId!,
+        job.payload.scanId,
+        job.payload.chunk,
+        lease,
+      ),
   },
 
   // Phase 9e: daily training reminders (due within 7 days or overdue).

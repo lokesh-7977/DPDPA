@@ -1,12 +1,12 @@
-import { lookup, resolveTxt } from "node:dns/promises";
+import { Resolver } from "node:dns/promises";
 import { env } from "../config/env.ts";
 import {
-  isPrivateAddress,
   TXT_PREFIX,
   txtRecordName,
   wellKnownUrl,
   type VerificationMethod,
 } from "../domain/scan-authorization.ts";
+import { networkFetcher } from "./web-fetcher.ts";
 
 /** Result of one ownership check. `detail` is a short machine reason, safe to store. */
 export type CheckResult = { ok: boolean; detail: string };
@@ -19,23 +19,22 @@ export interface DomainVerifier {
   ): Promise<CheckResult>;
 }
 
-const FETCH_TIMEOUT_MS = 5_000;
 const MAX_BODY_BYTES = 4_096;
+/** DNS answers within 5 s (2 tries) or the check fails. */
+const resolver = new Resolver({ timeout: 5_000, tries: 2 });
 
 /**
  * Real checks:
  * - dns_txt: a TXT record `dpdpa-verification=<token>` at `_dpdpa-verification.<host>`.
- * - well_known_file: `https://<host>/.well-known/dpdpa-verification.txt` containing the token.
- *   The host must resolve only to public addresses (no SSRF into private networks), redirects
- *   are not followed, the body is capped at 4 KB, and the request times out after 5 s.
- *   Known limit: DNS can change between the address check and the fetch (rebinding); the
- *   crawler (phase 4b) pins the resolved address instead.
+ * - well_known_file: `https://<host>/.well-known/dpdpa-verification.txt` containing the token,
+ *   fetched with the crawler's fetcher: it connects only to the public address it checked (no
+ *   DNS-rebinding window, no private networks), follows no redirects, and gives up after 10 s.
  */
 export const networkVerifier: DomainVerifier = {
   async check(method, hostname, token) {
     if (method === "dns_txt") {
       try {
-        const records = await resolveTxt(txtRecordName(hostname));
+        const records = await resolver.resolveTxt(txtRecordName(hostname));
         const values = records.map((chunks) => chunks.join(""));
         return values.includes(`${TXT_PREFIX}${token}`)
           ? { ok: true, detail: "token_found" }
@@ -43,52 +42,34 @@ export const networkVerifier: DomainVerifier = {
               ok: false,
               detail: values.length ? "token_mismatch" : "no_record",
             };
-      } catch {
-        return { ok: false, detail: "no_record" };
+      } catch (e) {
+        const code = (e as { code?: string }).code;
+        return {
+          ok: false,
+          detail:
+            code === "ENODATA" || code === "ENOTFOUND"
+              ? "no_record"
+              : "dns_error",
+        };
       }
     }
 
-    let addresses: { address: string }[];
-    try {
-      addresses = await lookup(hostname, { all: true });
-    } catch {
-      return { ok: false, detail: "dns_failed" };
-    }
-    if (
-      !addresses.length ||
-      addresses.some((a) => isPrivateAddress(a.address))
-    ) {
-      return { ok: false, detail: "private_address" };
-    }
-    try {
-      const res = await fetch(wellKnownUrl(hostname), {
-        redirect: "manual",
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        headers: { "User-Agent": "dpdpa-platform-verifier/1" },
-      });
-      if (res.status !== 200) {
-        await res.body?.cancel();
-        return { ok: false, detail: `http_${res.status}` };
-      }
-      const reader = res.body?.getReader();
-      let text = "";
-      let size = 0;
-      while (reader) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > MAX_BODY_BYTES) {
-          await reader.cancel();
-          return { ok: false, detail: "file_too_large" };
-        }
-        text += new TextDecoder().decode(value, { stream: true });
-      }
-      return text.trim() === token
-        ? { ok: true, detail: "token_found" }
-        : { ok: false, detail: "token_mismatch" };
-    } catch {
-      return { ok: false, detail: "fetch_failed" };
-    }
+    const res = await networkFetcher.fetch(wellKnownUrl(hostname), {
+      sampleBytes: MAX_BODY_BYTES + 1,
+    });
+    if (!res.ok)
+      return {
+        ok: false,
+        detail:
+          res.error === "private_address" ? "private_address" : "fetch_failed",
+      };
+    if (res.status !== 200) return { ok: false, detail: `http_${res.status}` };
+    const body = res.sample ?? "";
+    if (Buffer.byteLength(body) > MAX_BODY_BYTES)
+      return { ok: false, detail: "file_too_large" };
+    return body.trim() === token
+      ? { ok: true, detail: "token_found" }
+      : { ok: false, detail: "token_mismatch" };
   },
 };
 

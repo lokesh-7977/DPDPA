@@ -16,8 +16,15 @@ export const jobTypes = [
   "training.reminders",
   "assessment.render",
   "system.cleanup",
+  "retention.notice",
 ] as const;
 export type JobType = (typeof jobTypes)[number];
+
+/**
+ * A detached (long, network-bound) job renews its lease while it works; renew() is false when
+ * the lease was lost (another worker reclaimed the job): the job must stop at once.
+ */
+export type Lease = { renew(): Promise<boolean> };
 
 /** How long a claimed job is reserved for one worker before another may reclaim it. */
 export const JOB_LEASE_MS = 5 * 60_000;

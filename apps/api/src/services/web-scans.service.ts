@@ -3,6 +3,7 @@ import { logger } from "../config/logger.ts";
 import { db, type Tx, type WebScan } from "../db/index.ts";
 import type { Actor, OrgContext } from "../domain/auth.ts";
 import { conflict, notFound, unprocessable } from "../domain/errors.ts";
+import type { Lease } from "../domain/jobs.ts";
 import { assertPermission } from "../domain/permissions.ts";
 import {
   authorizationBlockedReason,
@@ -48,6 +49,8 @@ import { webFetcher } from "./web-fetcher.ts";
 
 const CHUNK_PAGES = 20;
 const STALL_HOURS = 6;
+/** One crawl job stops fetching after this long and queues the next chunk. */
+const CHUNK_MS = 120_000;
 const WORKER: Actor = { type: "system", id: "system:worker" };
 
 export const WEB_SCAN_LIMITS = { maxPages: 500, maxDepth: 5 } as const;
@@ -252,7 +255,8 @@ export const webScansService = {
   },
 
   /** Worker: one chunk of the crawl (outside any transaction). */
-  async crawl(orgId: string, scanId: string, chunk: number) {
+  async crawl(orgId: string, scanId: string, chunk: number, lease: Lease) {
+    const started = Date.now();
     let scan = await webScansRepository.find(db, orgId, scanId);
     if (!scan || (scan.status !== "queued" && scan.status !== "running"))
       return { skipped: true };
@@ -283,7 +287,17 @@ export const webScansService = {
         ? await scanCredentialsRepository.find(db, orgId, scan.credentialId)
         : null;
       if (!credential) return finish(scan, "stopped", "Test account not found");
-      const login = await loginSession(gate, credential);
+      let login: Awaited<ReturnType<typeof loginSession>>;
+      try {
+        login = await loginSession(gate, credential);
+      } catch {
+        // e.g. the vault key changed: the stored login can't be decrypted.
+        return finish(
+          scan,
+          "stopped",
+          "Test account can't be read; add it again",
+        );
+      }
       if (!login.ok) return finish(scan, "stopped", login.reason);
       jar = login.jar;
       if (
@@ -303,6 +317,10 @@ export const webScansService = {
     }
 
     for (let i = 0; i < CHUNK_PAGES; i++) {
+      // Another worker reclaimed the job (lease lost): stop at once, it carries on.
+      if (!(await lease.renew())) return { leaseLost: true };
+      // Bounded by time too, so a slow site can't outlast the lease between renewals.
+      if (Date.now() - started > CHUNK_MS) break;
       // Re-read everything before each request: cancel, revoke, lapse and expiry apply at once.
       const current = await webScansRepository.find(db, orgId, scanId);
       if (!current || current.status !== "running") return { stopped: true };
@@ -316,10 +334,10 @@ export const webScansService = {
         : "Authorization not found";
       if (stop || !gate)
         return finish(scan, "stopped", stop ?? "Authorization not found");
-      if (scan.pagesFetched >= scan.maxPages) return complete(scan);
+      if (scan.pagesFetched >= scan.maxPages) return complete(scan, lease);
 
       const page = await webScansRepository.nextQueued(db, scanId);
-      if (!page) return complete(scan);
+      if (!page) return complete(scan, lease);
       const url = `https://${gate.domain.hostname}${page.path}`;
       const blocked = urlBlockedReason({ ...gate, url });
       if (blocked) {
@@ -380,13 +398,8 @@ export const webScansService = {
           fetchedAt: new Date(),
         });
         scan =
-          (await webScansRepository.update(
-            db,
-            orgId,
-            scanId,
-            { pagesFetched: scan.pagesFetched + 1 },
-            ["running"],
-          )) ?? scan;
+          (await webScansRepository.incrementPagesFetched(db, orgId, scanId)) ??
+          scan;
         const room =
           scan.maxPages - (await webScansRepository.pageCount(db, scanId));
         if (room > 0)
@@ -418,9 +431,10 @@ const gateType = (t: WebScan["scanType"]): ScanType =>
   t === "security" ? "security_passive" : t;
 
 /** Frontier done: a security scan with active probes runs them once, then the scan ends. */
-async function complete(scan: WebScan) {
+async function complete(scan: WebScan, lease: Lease) {
   if (scan.scanType === "security" && scan.activeProbes && !scan.probes) {
-    const probes = await runProbes(scan);
+    const probes = await runProbes(scan, lease);
+    if (!probes) return { leaseLost: true };
     scan =
       (await webScansRepository.update(db, scan.orgId, scan.id, { probes }, [
         "running",
@@ -433,9 +447,13 @@ async function complete(scan: WebScan) {
  * Safe active probes: fixed GETs, each through the gate with security_active_safe (re-read per
  * probe). Only a short sample of each body is read to decide; nothing of it is stored.
  */
-async function runProbes(scan: WebScan): Promise<ProbeResult[]> {
+async function runProbes(
+  scan: WebScan,
+  lease: Lease,
+): Promise<ProbeResult[] | null> {
   const out: ProbeResult[] = [];
   for (const probe of PROBES) {
+    if (!(await lease.renew())) return null;
     const gate = await gateContext(db, scan.orgId, scan.authorizationId);
     const stop = gate
       ? authorizationBlockedReason(

@@ -134,12 +134,20 @@ export const accessReviewsService = {
       );
       if (!item) throw notFound("Item not found");
       assertDecision(item, d, ctx.user.userId);
-      return workforceRepository.updateItem(tx, item.id, {
+      const row = await workforceRepository.updateItem(tx, item.id, {
         decision: d.decision,
         newRole: d.decision === "change_role" ? d.newRole! : null,
         decidedBy: ctx.user.userId,
         decidedAt: new Date(),
       });
+      await audit(tx, ctx, "access_review.decided", "access_review", reviewId, {
+        itemId: item.id,
+        kind: item.kind,
+        subjectId: item.subjectId,
+        decision: d.decision,
+        newRole: row.newRole,
+      });
+      return row;
     });
   },
 

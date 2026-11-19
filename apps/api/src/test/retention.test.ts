@@ -12,6 +12,8 @@ process.env.JWT_SECRET ??= "test-secret-test-secret-test-secret-123";
 const { bootTestApp } = await import("./helpers.ts");
 const { memoryOutbox } = await import("../services/mailer.ts");
 const { runOnce } = await import("../jobs/runner.ts");
+const { sql } = await import("drizzle-orm");
+const { retentionService } = await import("../services/retention.service.ts");
 const { erasureDue, scheduleFor } = await import("../domain/retention.ts");
 
 let t: Awaited<ReturnType<typeof bootTestApp>>;
@@ -257,11 +259,20 @@ describe("retention sweep", () => {
 
   test("a year after withdrawal: erasure scheduled, notice emailed (r.8(2)), preview shows it", async () => {
     await runOnce({ now: inDays(366), batch: 50 });
+    assert.equal(
+      memoryOutbox.some((m) => m.to === "leaving@x.in"),
+      false,
+      "the notice is its own job, sent after the schedule commits",
+    );
+    assert.equal((await principal(leaving)).erasedAt, null);
+    await runOnce({ now: inDays(366), batch: 50 });
     const p = await principal(leaving);
     assert.ok(p.erasureScheduledFor, JSON.stringify(p));
     assert.equal(p.erasureReason, "purpose_served");
     // The daily job runs on its day's clock (midnight UTC); the notice goes out then.
-    const jobClock = Date.parse(`${inDays(366).toISOString().slice(0, 10)}T00:00:00Z`);
+    const jobClock = Date.parse(
+      `${inDays(366).toISOString().slice(0, 10)}T00:00:00Z`,
+    );
     assert.ok(
       Date.parse(p.erasureScheduledFor) >= jobClock + 48 * 3_600_000,
       "at least 48 h after the notice",
@@ -292,6 +303,17 @@ describe("retention sweep", () => {
     );
     assert.equal(back.status, 200, JSON.stringify(back.body));
     assert.equal(back.body.erasureScheduledFor, null);
+    const cancelled = (
+      await t.call("GET", P("/audit?limit=500"), org.adminToken)
+    ).body.items.find(
+      (a: any) =>
+        a.action === "retention.erasure_cancelled" && a.entityId === returning,
+    );
+    assert.equal(
+      cancelled?.payload.cause,
+      "activity",
+      "cancellation by activity is on the record",
+    );
     assert.equal(
       (
         await t.call(
@@ -302,6 +324,43 @@ describe("retention sweep", () => {
       ).status,
       404,
     );
+  });
+
+  test("no erasure until the notice was sent at least 48 hours earlier", async () => {
+    const id = (
+      await t.call("POST", P("/data-principals"), key, {
+        externalRef: "WAITS",
+        email: "waits@x.in",
+      })
+    ).body.id;
+    const past = new Date(Date.now() - 2 * 86_400_000);
+    await t.db.execute(
+      sql`UPDATE data_principals SET erasure_scheduled_for = ${past}, erasure_reason = 'purpose_served', last_active_at = ${new Date("2020-01-01")} WHERE id = ${id}`,
+    );
+    const lease = { renew: async () => true };
+    await retentionService.sweep(lease, new Date());
+    assert.equal((await principal(id)).erasedAt, null, "notice not sent yet");
+    assert.ok((await principal(id)).erasureScheduledFor, "left alone: not even re-evaluated before the notice");
+    await t.db.execute(
+      sql`UPDATE data_principals SET erasure_notice_sent_at = ${new Date(Date.now() - 3_600_000)} WHERE id = ${id}`,
+    );
+    await retentionService.sweep(lease, new Date());
+    assert.equal(
+      (await principal(id)).erasedAt,
+      null,
+      "notice sent less than 48 h ago",
+    );
+    assert.ok((await principal(id)).erasureScheduledFor, "still waiting for the 48 h");
+    await t.db.execute(
+      sql`UPDATE data_principals SET erasure_notice_sent_at = ${new Date(Date.now() - 49 * 3_600_000)} WHERE id = ${id}`,
+    );
+    await retentionService.sweep(lease, new Date());
+    assert.equal(
+      (await principal(id)).erasedAt,
+      null,
+      "still due? no: purpose_served needs ended consents, so it is cancelled",
+    );
+    assert.equal((await principal(id)).erasureScheduledFor, null);
   });
 
   test("after the notice period: erased, with proof in the audit chain", async () => {
@@ -353,6 +412,7 @@ describe("retention sweep", () => {
       null,
       "not before commencement + 3 years",
     );
+    await runOnce({ now: new Date("2030-05-12T06:00:00Z"), batch: 50 });
     await runOnce({ now: new Date("2030-05-12T06:00:00Z"), batch: 50 });
     const p = await principal(idle, shop);
     assert.equal(p.erasureReason, "inactivity");

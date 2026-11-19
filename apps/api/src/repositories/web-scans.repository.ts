@@ -86,6 +86,22 @@ export const webScansRepository = {
       .for("update", { of: webScans, skipLocked: true });
   },
 
+  /** Atomic +1 (two writers can't lose an increment). Only while running. */
+  async incrementPagesFetched(ex: Executor, orgId: string, id: string) {
+    const [row] = await ex
+      .update(webScans)
+      .set({ pagesFetched: sql`${webScans.pagesFetched} + 1` })
+      .where(
+        and(
+          eq(webScans.orgId, orgId),
+          eq(webScans.id, id),
+          eq(webScans.status, "running"),
+        ),
+      )
+      .returning();
+    return row ?? null;
+  },
+
   // ─── Pages (frontier) ──────────────────────────────────────────────────────
 
   async pageCount(ex: Executor, scanId: string) {

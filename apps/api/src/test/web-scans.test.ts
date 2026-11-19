@@ -340,6 +340,24 @@ describe("website crawl", () => {
     assert.equal(requested.length, before, "nothing fetched after revocation");
   });
 
+  test("a crawl whose job lease was lost stops at once and fetches nothing", async () => {
+    const { webScansService } =
+      await import("../services/web-scans.service.ts");
+    const authorizationId = await sign(["web_crawl_public"]);
+    const s = await t.call("POST", P("/web-scans"), dpoToken, {
+      authorizationId,
+      maxPages: 5,
+      maxDepth: 1,
+    });
+    const before = requested.length;
+    const r = await webScansService.crawl(org.orgId, s.body.id, 0, {
+      renew: async () => false,
+    });
+    assert.deepEqual(r, { leaseLost: true });
+    assert.equal(requested.length, before);
+    await t.call("POST", P(`/web-scans/${s.body.id}/cancel`), dpoToken);
+  });
+
   test("cancel: DPO / admin, once", async () => {
     const s = await t.call("POST", P("/web-scans"), org.adminToken, {
       authorizationId: authId,

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { BlockList, isIP } from "node:net";
 import { unprocessable } from "./errors.ts";
 
 /**
@@ -41,32 +42,97 @@ export function normaliseHostname(input: string): string {
   return host;
 }
 
-/** True for addresses a scanner must never reach (loopback, private, link-local, CGNAT, …). */
-export function isPrivateAddress(ip: string): boolean {
-  const v4 = ip.startsWith("::ffff:") ? ip.slice(7) : ip;
-  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(v4);
-  if (m) {
-    const [a, b] = [Number(m[1]), Number(m[2])];
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      a >= 224 ||
-      (a === 100 && b >= 64 && b <= 127) || // CGNAT
-      (a === 169 && b === 254) || // link-local, cloud metadata
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 198 && (b === 18 || b === 19)) // benchmarking
-    );
+/**
+ * IANA special-purpose ranges a scanner must never reach (RFC 6890 and successors): private,
+ * loopback, link-local / cloud metadata, CGNAT, documentation, benchmarking, multicast,
+ * reserved, and the IPv6 translation prefixes that can lead back into private IPv4.
+ */
+const BLOCKED = new BlockList();
+for (const [net, bits] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.88.99.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
+] as const) {
+  BLOCKED.addSubnet(net, bits, "ipv4");
+}
+for (const [net, bits] of [
+  ["::", 128],
+  ["::1", 128],
+  ["64:ff9b:1::", 48], // local-use NAT64
+  ["100::", 64], // discard-only
+  ["2001::", 23], // IETF protocol assignments (incl. Teredo 2001::/32)
+  ["2001:db8::", 32], // documentation
+  ["fc00::", 7], // unique local
+  ["fe80::", 10], // link-local
+  ["fec0::", 10], // site-local (deprecated)
+  ["ff00::", 8], // multicast
+] as const) {
+  BLOCKED.addSubnet(net, bits, "ipv6");
+}
+
+/** The 8 groups of a valid IPv6 address (dotted-quad tail included), or null. */
+function ipv6Groups(addr: string): number[] | null {
+  let text = addr.toLowerCase();
+  const quad = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (quad) {
+    const [a, b, c, d] = quad.slice(1).map(Number) as [
+      number,
+      number,
+      number,
+      number,
+    ];
+    text = `${text.slice(0, quad.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
   }
-  const v6 = ip.toLowerCase();
-  return (
-    v6 === "::" ||
-    v6 === "::1" ||
-    /^f[cd]/.test(v6) ||
-    /^fe[89ab]/.test(v6) ||
-    v6.startsWith("ff")
+  const [head, tail] = text.split("::") as [string, string | undefined];
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const fill = tail === undefined ? 0 : 8 - left.length - right.length;
+  const groups = [...left, ...Array(fill).fill("0"), ...right].map((g) =>
+    parseInt(g, 16),
   );
+  return groups.length === 8 && groups.every((g) => g >= 0 && g <= 0xffff)
+    ? groups
+    : null;
+}
+
+const v4From = (hi: number, lo: number) =>
+  `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+
+/** An IPv4 address carried inside an IPv6 one (mapped, compatible, NAT64, 6to4), or null. */
+function embeddedIpv4(g: number[]): string | null {
+  const zero = (from: number, to: number) =>
+    g.slice(from, to).every((x) => x === 0);
+  if (zero(0, 5) && (g[5] === 0xffff || g[5] === 0))
+    return v4From(g[6]!, g[7]!); // ::ffff:a.b.c.d, ::a.b.c.d
+  if (g[0] === 0x64 && g[1] === 0xff9b && zero(2, 6))
+    return v4From(g[6]!, g[7]!); // NAT64 64:ff9b::/96
+  if (g[0] === 0x2002) return v4From(g[1]!, g[2]!); // 6to4 2002:a.b.c.d::/48
+  return null;
+}
+
+/** True for addresses a scanner must never reach. Anything unparseable is refused too. */
+export function isPrivateAddress(ip: string): boolean {
+  const addr = ip.split("%")[0]!.trim();
+  const family = isIP(addr);
+  if (family === 4) return BLOCKED.check(addr, "ipv4");
+  if (family !== 6) return true;
+  const groups = ipv6Groups(addr);
+  if (!groups) return true;
+  const v4 = embeddedIpv4(groups);
+  if (v4) return BLOCKED.check(v4, "ipv4") || v4 === "0.0.0.0";
+  return BLOCKED.check(addr, "ipv6");
 }
 
 // ─── Ownership verification ──────────────────────────────────────────────────

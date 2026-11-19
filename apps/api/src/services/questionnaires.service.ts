@@ -312,12 +312,17 @@ export const questionnairesService = {
       if (!item) throw notFound("Question not found");
       const text = v.answer?.trim() || item.answer;
       if (!text) throw unprocessable("Write an answer");
-      return questionnairesRepository.updateItem(tx, item.id, {
+      const row = await questionnairesRepository.updateItem(tx, item.id, {
         answer: text,
         status: "answered",
         answeredBy: ctx.user.userId,
         answeredAt: new Date(),
       });
+      await audit(tx, ctx, "questionnaire.answered", "questionnaire", id, {
+        itemId: item.id,
+        acceptedSuggestion: !v.answer?.trim(),
+      });
+      return row;
     });
   },
 

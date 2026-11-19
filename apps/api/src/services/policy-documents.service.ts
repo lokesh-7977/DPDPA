@@ -91,8 +91,7 @@ async function createInTx(
   return { policy, version };
 }
 
-async function loadPolicy(
-  tx: Executor, ctx: OrgContext, policyId: string) {
+async function loadPolicy(tx: Executor, ctx: OrgContext, policyId: string) {
   const p = await policiesRepository.find(tx, ctx.org.orgId, policyId);
   if (!p) throw notFound("Policy not found");
   return p;
@@ -256,10 +255,20 @@ export const policyDocumentsService = {
     return db.transaction(async (tx) => {
       const v = await loadVersion(tx, ctx, policyId, versionId);
       if (v.status !== "draft") throw conflict("Only drafts can be edited");
-      return policiesRepository.updateVersion(tx, ctx.org.orgId, v.id, {
-        body,
-        contributors: withContributor(v.contributors, ctx.user.userId),
+      const row = await policiesRepository.updateVersion(
+        tx,
+        ctx.org.orgId,
+        v.id,
+        {
+          body,
+          contributors: withContributor(v.contributors, ctx.user.userId),
+        },
+      );
+      await audit(tx, ctx, "policy.edited", policyId, {
+        versionId: v.id,
+        version: v.version,
       });
+      return row;
     });
   },
 
@@ -427,4 +436,3 @@ export const policyDocumentsService = {
     };
   },
 };
-
