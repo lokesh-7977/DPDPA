@@ -126,7 +126,7 @@ Detailed plans for finished/started phases live next to this file in `docs/plans
 | 9b | Policies: 13 templates filled from org facts, approval with separation of duties, immutable versions, employee attestation (AI drafts later) | ✅ |
 | 9c | Controls + evidence: owners, review cadence, link / note / file evidence, approval with segregation of duties, automatic checks from platform data, live status (not determined ≠ met), readiness per framework, daily owner digest | ✅ |
 | 9d | Org risk register: inherent / residual 5×5, heat map, linked controls and treatment tasks, acceptance with end date, review cadence, history | ✅ |
-| 9e | Training + attestations, access reviews | ❌ |
+| 9e | Training (courses, assignments, recurring cycles, reminders, report) + access reviews (members and API keys, decisions applied on completion) | ✅ |
 | 9f | Trust center, questionnaire answering, auditor read-only room | ❌ |
 | 9g | Integrations: AWS/GCP/Azure, Google Workspace, MCP server | ❌ |
 

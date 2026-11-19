@@ -26,3 +26,4 @@ export * from "./scans/index.ts";
 export * from "./transfers/index.ts";
 export * from "./vendors/index.ts";
 export * from "./web-scans/index.ts";
+export * from "./workforce/index.ts";

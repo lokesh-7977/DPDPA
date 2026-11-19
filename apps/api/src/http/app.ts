@@ -39,6 +39,7 @@ import { scanCredentialsRoutes } from "./routes/scan-credentials.routes.ts";
 import { programRoutes } from "./routes/program.routes.ts";
 import { policyDocumentsRoutes } from "./routes/policy-documents.routes.ts";
 import { risksRoutes } from "./routes/risks.routes.ts";
+import { workforceRoutes } from "./routes/workforce.routes.ts";
 import {
   restrictedCountriesRoutes,
   transfersRoutes,
@@ -129,6 +130,7 @@ const routes = base
   .route("/orgs", programRoutes)
   .route("/orgs", policyDocumentsRoutes)
   .route("/orgs", risksRoutes)
+  .route("/orgs", workforceRoutes)
   .route("/platform", restrictedCountriesRoutes)
   .route("/public", publicNoticesRoutes)
   .route("/public", publicRightsRoutes)

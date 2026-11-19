@@ -11,6 +11,7 @@ import { vendorsService } from "../services/vendors.service.ts";
 import { retentionService } from "../services/retention.service.ts";
 import { domainsService } from "../services/domains.service.ts";
 import { webScansService } from "../services/web-scans.service.ts";
+import { trainingService } from "../services/training.service.ts";
 import { ropaService } from "../services/ropa.service.ts";
 
 /** One handler per job type. Return value is stored as the job's result (ids/counts only). */
@@ -105,6 +106,15 @@ export const handlers: { [T in JobType]: Handler<T> } = {
     detached: (job) =>
       webScansService.crawl(job.orgId!, job.payload.scanId, job.payload.chunk),
   },
+
+  // Phase 9e: daily training reminders (due within 7 days or overdue).
+  "training.reminders": (tx, job) =>
+    trainingService.reminders(
+      tx,
+      new Date(
+        Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+      ),
+    ),
 };
 
 export const isJobType = (t: string): t is JobType =>

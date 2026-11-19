@@ -25,6 +25,7 @@ export type JobPayloads = {
   "retention.sweep": { day: string };
   "domains.recheck": { day: string };
   "web_scan.crawl": { scanId: string; chunk: number };
+  "training.reminders": { day: string };
 };
 
 export const queueService = {
@@ -132,6 +133,15 @@ export const queueService = {
         { day },
         {
           idempotencyKey: `domains.recheck:${day}`,
+        },
+      );
+      await queueService.enqueue(
+        tx,
+        "training.reminders",
+        null,
+        { day },
+        {
+          idempotencyKey: `training.reminders:${day}`,
         },
       );
     });
