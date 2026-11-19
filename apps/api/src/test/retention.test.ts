@@ -340,7 +340,10 @@ describe("retention sweep", () => {
     const lease = { renew: async () => true };
     await retentionService.sweep(lease, new Date());
     assert.equal((await principal(id)).erasedAt, null, "notice not sent yet");
-    assert.ok((await principal(id)).erasureScheduledFor, "left alone: not even re-evaluated before the notice");
+    assert.ok(
+      (await principal(id)).erasureScheduledFor,
+      "left alone: not even re-evaluated before the notice",
+    );
     await t.db.execute(
       sql`UPDATE data_principals SET erasure_notice_sent_at = ${new Date(Date.now() - 3_600_000)} WHERE id = ${id}`,
     );
@@ -350,7 +353,10 @@ describe("retention sweep", () => {
       null,
       "notice sent less than 48 h ago",
     );
-    assert.ok((await principal(id)).erasureScheduledFor, "still waiting for the 48 h");
+    assert.ok(
+      (await principal(id)).erasureScheduledFor,
+      "still waiting for the 48 h",
+    );
     await t.db.execute(
       sql`UPDATE data_principals SET erasure_notice_sent_at = ${new Date(Date.now() - 49 * 3_600_000)} WHERE id = ${id}`,
     );
@@ -361,6 +367,50 @@ describe("retention sweep", () => {
       "still due? no: purpose_served needs ended consents, so it is cancelled",
     );
     assert.equal((await principal(id)).erasureScheduledFor, null);
+  });
+
+  test("a notice that never went out is sent again; nobody waits forever", async () => {
+    const id = (
+      await t.call("POST", P("/data-principals"), key, {
+        externalRef: "LATE-EMAIL",
+      })
+    ).body.id;
+    const soon = new Date(Date.now() + 86_400_000);
+    // Scheduled without an email (no notice job), then an email is added.
+    await t.db.execute(
+      sql`UPDATE data_principals SET erasure_scheduled_for = ${soon}, erasure_reason = 'purpose_served', email = 'late@x.in' WHERE id = ${id}`,
+    );
+    memoryOutbox.length = 0;
+    const lease = { renew: async () => true };
+    const r = await retentionService.sweep(lease, new Date());
+    assert.ok((r as { requeued: number }).requeued >= 1);
+    await runOnce({ batch: 50 });
+    const mail = memoryOutbox.find((m) => m.to === "late@x.in");
+    assert.ok(mail, "notice sent");
+    const rec = await t.db.execute(
+      sql`SELECT erasure_notice_sent_at IS NOT NULL AS sent FROM data_principals WHERE id = ${id}`,
+    );
+    assert.ok(JSON.stringify(rec).includes('"sent":true'), "recorded");
+    // The email never names a date less than 48 h after it was sent.
+    const named = Date.parse(/on (\d{4}-\d{2}-\d{2})/.exec(mail!.subject)![1]!);
+    assert.ok(
+      named >=
+        Date.parse(
+          new Date(Date.now() + 47 * 3_600_000).toISOString().slice(0, 10),
+        ),
+    );
+  });
+
+  test("the sweep finishes when many people share one timestamp", async () => {
+    await t.db.execute(
+      sql`INSERT INTO data_principals (org_id, external_ref, last_active_at)
+          SELECT ${org.orgId}, 'BULK-' || g, timestamp with time zone '2020-01-01 00:00:00.123456+00'
+          FROM generate_series(1, 600) g`,
+    );
+    const lease = { renew: async () => true };
+    const started = Date.now();
+    await retentionService.sweep(lease, new Date());
+    assert.ok(Date.now() - started < 120_000, "no endless paging");
   });
 
   test("after the notice period: erased, with proof in the audit chain", async () => {

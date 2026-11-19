@@ -144,6 +144,29 @@ export const retentionRepository = {
     return new Set(rows.map((r) => r.guardianId!));
   },
 
+  /** Scheduled erasures of people with an email whose r.8(2) notice is not recorded yet. */
+  pendingNotices(ex: Executor, limit: number) {
+    return ex
+      .select({
+        id: dataPrincipals.id,
+        orgId: dataPrincipals.orgId,
+        erasureScheduledFor: dataPrincipals.erasureScheduledFor,
+      })
+      .from(dataPrincipals)
+      .innerJoin(organizations, eq(dataPrincipals.orgId, organizations.id))
+      .where(
+        and(
+          eq(organizations.status, "active"),
+          isNull(dataPrincipals.erasedAt),
+          isNotNull(dataPrincipals.erasureScheduledFor),
+          isNotNull(dataPrincipals.email),
+          isNull(dataPrincipals.erasureNoticeSentAt),
+        ),
+      )
+      .orderBy(asc(dataPrincipals.erasureScheduledFor))
+      .limit(limit);
+  },
+
   async findUnlocked(ex: Executor, orgId: string, id: string) {
     const [row] = await ex
       .select()

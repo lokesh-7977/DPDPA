@@ -70,7 +70,10 @@ for (const [net, bits] of [
 for (const [net, bits] of [
   ["::", 128],
   ["::1", 128],
+  ["64:ff9b::", 32], // NAT64 outside the /96 well-known shape (the /96 is unwrapped first)
   ["64:ff9b:1::", 48], // local-use NAT64
+  ["3fff::", 20], // documentation (RFC 9637)
+  ["5f00::", 16], // SRv6 SIDs (RFC 9602)
   ["100::", 64], // discard-only
   ["2001::", 23], // IETF protocol assignments (incl. Teredo 2001::/32)
   ["2001:db8::", 32], // documentation
@@ -114,8 +117,9 @@ const v4From = (hi: number, lo: number) =>
 function embeddedIpv4(g: number[]): string | null {
   const zero = (from: number, to: number) =>
     g.slice(from, to).every((x) => x === 0);
-  if (zero(0, 5) && (g[5] === 0xffff || g[5] === 0))
-    return v4From(g[6]!, g[7]!); // ::ffff:a.b.c.d, ::a.b.c.d
+  if (zero(0, 5) && g[5] === 0xffff) return v4From(g[6]!, g[7]!); // ::ffff:a.b.c.d (mapped)
+  if (zero(0, 4) && g[4] === 0xffff && g[5] === 0) return v4From(g[6]!, g[7]!); // ::ffff:0:a.b.c.d (translated)
+  if (zero(0, 6)) return "0.0.0.0"; // ::a.b.c.d (deprecated compatible, ::, ::1): never scanned
   if (g[0] === 0x64 && g[1] === 0xff9b && zero(2, 6))
     return v4From(g[6]!, g[7]!); // NAT64 64:ff9b::/96
   if (g[0] === 0x2002) return v4From(g[1]!, g[2]!); // 6to4 2002:a.b.c.d::/48
@@ -131,7 +135,7 @@ export function isPrivateAddress(ip: string): boolean {
   const groups = ipv6Groups(addr);
   if (!groups) return true;
   const v4 = embeddedIpv4(groups);
-  if (v4) return BLOCKED.check(v4, "ipv4") || v4 === "0.0.0.0";
+  if (v4) return BLOCKED.check(v4, "ipv4");
   return BLOCKED.check(addr, "ipv6");
 }
 

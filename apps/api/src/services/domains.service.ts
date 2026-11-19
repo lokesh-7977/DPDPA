@@ -37,6 +37,13 @@ import { domainVerifier } from "./domain-verifier.ts";
 const WORKER: Actor = { type: "system", id: "system:worker" };
 /** Domains re-checked per daily run (the rest wait for the next day; oldest first). */
 const RECHECK_BATCH = 200;
+/** Check results that say nothing about ownership: never lapse a domain on these. */
+const INCONCLUSIVE = new Set([
+  "dns_error",
+  "fetch_failed",
+  "timeout",
+  "read_failed",
+]);
 
 const audit = (
   tx: Tx,
@@ -189,6 +196,8 @@ export const domainsService = {
           ok: result.ok,
           detail: result.detail,
         });
+        // Inconclusive (DNS outage, unreachable): recorded, not lapsed, retried on the next run.
+        if (!result.ok && INCONCLUSIVE.has(result.detail)) return false;
         await domainsRepository.update(
           tx,
           d.orgId,
