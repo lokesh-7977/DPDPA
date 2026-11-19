@@ -9,7 +9,7 @@ import { auditService } from "./audit.service.ts";
  * Throws if the change would leave the org without an org_admin.
  * Locks all org_admin rows first so two admins can't demote each other concurrently.
  */
-async function assertKeepsAnAdmin(tx: Tx, orgId: string, userId: string, nextRole: OrgRole | null) {
+export async function assertKeepsAnAdmin(tx: Tx, orgId: string, userId: string, nextRole: OrgRole | null) {
   const admins = await membershipsRepository.lockAdmins(tx, orgId);
   const isAdmin = admins.some((a) => a.userId === userId);
   if (isAdmin && nextRole !== "org_admin" && admins.length <= 1) {
