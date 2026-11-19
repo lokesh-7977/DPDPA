@@ -19,7 +19,8 @@ const argonQueue: Array<() => void> = [];
 
 async function withArgonSlot<T>(fn: () => Promise<T>): Promise<T> {
   if (argonActive >= ARGON_MAX_ACTIVE) {
-    if (argonQueue.length >= ARGON_MAX_QUEUED) throw rateLimited("Server busy, try again shortly");
+    if (argonQueue.length >= ARGON_MAX_QUEUED)
+      throw rateLimited("Server busy, try again shortly");
     await new Promise<void>((resolve) => argonQueue.push(resolve));
   }
   argonActive++;
@@ -48,7 +49,10 @@ export async function verifyPassword(passwordHash: string, password: string) {
 }
 
 /** Hash computed once so unknown-email logins take the same time as wrong-password ones. */
-const dummyHash = hash("dpdpa-timing-equaliser-not-a-real-password", ARGON_OPTIONS);
+const dummyHash = hash(
+  "dpdpa-timing-equaliser-not-a-real-password",
+  ARGON_OPTIONS,
+);
 export async function burnPasswordCheck(password: string) {
   await verifyPassword(await dummyHash, password);
 }
@@ -57,7 +61,27 @@ export async function burnPasswordCheck(password: string) {
 export const randomToken = () => randomBytes(32).toString("base64url");
 
 /** High-entropy tokens only need a fast hash for lookup (no salt/stretching). */
-export const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+export const sha256 = (value: string) =>
+  createHash("sha256").update(value).digest("hex");
+
+/** Auditor room session tokens: a separate audience, so they never pass as platform logins. */
+export const AUDITOR_AUDIENCE = "dpdpa-auditor-room";
+
+export function signAuditorToken(grantId: string, ttlSeconds: number) {
+  const now = Math.floor(Date.now() / 1000);
+  return sign(
+    {
+      sub: grantId,
+      typ: "auditor",
+      aud: AUDITOR_AUDIENCE,
+      iss: env.JWT_ISSUER,
+      iat: now,
+      exp: now + ttlSeconds,
+    },
+    env.JWT_SECRET,
+    "HS256",
+  );
+}
 
 export function signAccessToken(userId: string) {
   const now = Math.floor(Date.now() / 1000);

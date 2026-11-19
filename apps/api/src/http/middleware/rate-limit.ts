@@ -132,6 +132,19 @@ export const rightsSubmitLimit = rateLimit({
   windowMs: FIFTEEN_MIN,
   key: byNetwork,
 });
+/** Auditor room sign-in and link requests: per network. */
+export const auditorSignInLimit = rateLimit({
+  name: "auditor-sign-in",
+  max: 20,
+  windowMs: FIFTEEN_MIN,
+  key: byNetwork,
+});
+export const auditorLinkLimit = rateLimit({
+  name: "auditor-link",
+  max: 5,
+  windowMs: FIFTEEN_MIN,
+  key: byNetwork,
+});
 /** Verification links: per network (tokens are 256-bit, this only limits noise). */
 export const rightsVerifyLimit = rateLimit({
   name: "rights-verify",
