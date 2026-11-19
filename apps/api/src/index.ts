@@ -5,11 +5,19 @@ import { closeDb } from "./db/index.ts";
 import { app } from "./http/app.ts";
 
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
-  logger.info({ port: info.port, env: env.NODE_ENV }, `API listening on http://localhost:${info.port} (docs: /docs)`);
+  logger.info(
+    { port: info.port, env: env.NODE_ENV },
+    `API listening on http://localhost:${info.port} (docs: /docs)`,
+  );
 });
 
 const shutdown = (signal: string) => {
   logger.info({ signal }, "shutting down");
+  // Stop accepting connections; force exit if open requests do not finish in time.
+  setTimeout(() => {
+    logger.warn("Forced shutdown after 10 s");
+    process.exit(1);
+  }, 10_000).unref();
   server.close(async () => {
     await closeDb();
     logger.flush();
@@ -21,5 +29,8 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 process.on("unhandledRejection", (reason) => {
   // Name only: messages of DB errors can embed query params (PII).
-  logger.error({ errName: (reason as Error)?.name ?? typeof reason }, "unhandled promise rejection");
+  logger.error(
+    { errName: (reason as Error)?.name ?? typeof reason },
+    "unhandled promise rejection",
+  );
 });

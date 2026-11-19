@@ -4,32 +4,15 @@ import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { env } from "../../config/env.ts";
 import { anonymousActor } from "../context.ts";
+import { rateLimitStore } from "../../services/rate-limit-store.ts";
 import { networkKeyFor } from "./network-key.ts";
 import type { AppEnv } from "./auth.ts";
 
 /**
- * Fixed-window, in-memory rate limiter. Per process: behind several API
- * instances, move the buckets to Redis (same interface).
- *
- * Memory is bounded: keys are short (hashed), and at MAX_BUCKETS the oldest
- * buckets are evicted (Map keeps insertion order).
+ * Fixed-window rate limiter. Counters live in services/rate-limit-store.ts: in memory (one
+ * instance) or in Postgres (shared by every API instance; required in production).
+ * Keys are short hashes, never raw IPs or emails.
  */
-type Bucket = { count: number; resetAt: number };
-const buckets = new Map<string, Bucket>();
-const MAX_BUCKETS = 50_000;
-
-const LOW_WATER = Math.floor(MAX_BUCKETS * 0.9);
-
-/** Called only at MAX_BUCKETS; always leaves >= 10% headroom so the O(n) sweep stays rare. */
-function makeRoom(now: number) {
-  for (const [key, b] of buckets) if (b.resetAt <= now) buckets.delete(key);
-  let excess = buckets.size - LOW_WATER;
-  for (const key of buckets.keys()) {
-    if (excess-- <= 0) break;
-    buckets.delete(key); // oldest first (insertion order)
-  }
-}
-
 type KeyFn = (c: Context<AppEnv>) => string | null | Promise<string | null>;
 
 export function rateLimit(opts: {
@@ -43,15 +26,11 @@ export function rateLimit(opts: {
     const k = await opts.key(c);
     if (k !== null) {
       const now = Date.now();
-      const id = `${opts.name}:${k}`;
-      let b = buckets.get(id);
-      if (!b || b.resetAt <= now) {
-        if (buckets.size >= MAX_BUCKETS) makeRoom(now);
-        b = { count: 0, resetAt: now + opts.windowMs };
-        buckets.delete(id); // re-insert at the end: Map order = age, used for eviction
-        buckets.set(id, b);
-      }
-      b.count++;
+      const b = await rateLimitStore.hit(
+        `${opts.name}:${k}`,
+        opts.windowMs,
+        now,
+      );
       if (b.count > opts.max) {
         c.header("Retry-After", String(Math.ceil((b.resetAt - now) / 1000)));
         throw new HTTPException(429, {
@@ -132,6 +111,14 @@ export const rightsSubmitLimit = rateLimit({
   windowMs: FIFTEEN_MIN,
   key: byNetwork,
 });
+/** Every public (unauthenticated) read: per network. */
+export const publicReadLimit = rateLimit({
+  name: "public-read",
+  max: 120,
+  windowMs: 60_000,
+  key: byNetwork,
+});
+
 /** Auditor room sign-in and link requests: per network. */
 export const auditorSignInLimit = rateLimit({
   name: "auditor-sign-in",

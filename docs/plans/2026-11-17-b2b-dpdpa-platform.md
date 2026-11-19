@@ -129,6 +129,7 @@ Detailed plans for finished/started phases live next to this file in `docs/plans
 | 9e | Training (courses, assignments, recurring cycles, reminders, report) + access reviews (members and API keys, decisions applied on completion) | ✅ |
 | 9f | Trust center (snapshot-based public page), questionnaire answering (answer library + matching), auditor read-only rooms (scoped, time-limited, logged) | ✅ |
 | 9g | Integrations: AWS/GCP/Azure, Google Workspace, MCP server | ❌ |
+| 18 | Production readiness: readiness probe, shared rate limits, public limits, no-store, timeouts, cleanup job, operations runbook | ✅ |
 
 Also done outside the phase list: Resend email, pino logging, rate limiting, security-review fixes, TypeScript-only codebase.
 

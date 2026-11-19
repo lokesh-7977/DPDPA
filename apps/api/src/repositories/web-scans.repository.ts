@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, like } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, sql } from "drizzle-orm";
 import {
   webScanFindings,
   webScanPages,
@@ -69,6 +69,21 @@ export const webScansRepository = {
       )
       .returning();
     return row ?? null;
+  },
+
+  /** Queued / running scans with no progress (page fetched, start or creation) since `before`. */
+  stalled(ex: Executor, before: Date) {
+    const lastProgress = sql`coalesce((select max(${webScanPages.fetchedAt}) from ${webScanPages} where ${webScanPages.scanId} = ${webScans.id}), ${webScans.startedAt}, ${webScans.createdAt})`;
+    return ex
+      .select()
+      .from(webScans)
+      .where(
+        and(
+          inArray(webScans.status, [...ACTIVE]),
+          sql`${lastProgress} < ${before}`,
+        ),
+      )
+      .for("update", { of: webScans, skipLocked: true });
   },
 
   // ─── Pages (frontier) ──────────────────────────────────────────────────────
