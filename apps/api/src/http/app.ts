@@ -37,6 +37,7 @@ import { domainsRoutes } from "./routes/domains.routes.ts";
 import { webScansRoutes } from "./routes/web-scans.routes.ts";
 import { scanCredentialsRoutes } from "./routes/scan-credentials.routes.ts";
 import { programRoutes } from "./routes/program.routes.ts";
+import { policyDocumentsRoutes } from "./routes/policy-documents.routes.ts";
 import {
   restrictedCountriesRoutes,
   transfersRoutes,
@@ -125,6 +126,7 @@ const routes = base
   .route("/orgs", webScansRoutes)
   .route("/orgs", scanCredentialsRoutes)
   .route("/orgs", programRoutes)
+  .route("/orgs", policyDocumentsRoutes)
   .route("/platform", restrictedCountriesRoutes)
   .route("/public", publicNoticesRoutes)
   .route("/public", publicRightsRoutes)
