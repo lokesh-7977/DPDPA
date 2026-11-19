@@ -13,6 +13,7 @@ import { domainsService } from "../services/domains.service.ts";
 import { webScansService } from "../services/web-scans.service.ts";
 import { trainingService } from "../services/training.service.ts";
 import { assessmentsService } from "../services/assessments.service.ts";
+import { systemService } from "../services/system.service.ts";
 import { ropaService } from "../services/ropa.service.ts";
 
 /** One handler per job type. Return value is stored as the job's result (ids/counts only). */
@@ -120,6 +121,15 @@ export const handlers: { [T in JobType]: Handler<T> } = {
   // Phase 6: PDF report + evidence pack of a frozen assessment.
   "assessment.render": (tx, job) =>
     assessmentsService.render(tx, job.orgId!, job.payload.assessmentId),
+
+  // Phase 18: daily housekeeping (expired rate-limit buckets, stalled web scans).
+  "system.cleanup": (tx, job) =>
+    systemService.cleanup(
+      tx,
+      new Date(
+        Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+      ),
+    ),
 };
 
 export const isJobType = (t: string): t is JobType =>

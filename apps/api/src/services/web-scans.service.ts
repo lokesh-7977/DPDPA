@@ -47,6 +47,7 @@ import { webFetcher } from "./web-fetcher.ts";
  */
 
 const CHUNK_PAGES = 20;
+const STALL_HOURS = 6;
 const WORKER: Actor = { type: "system", id: "system:worker" };
 
 export const WEB_SCAN_LIMITS = { maxPages: 500, maxDepth: 5 } as const;
@@ -221,6 +222,33 @@ export const webScansService = {
     if (!(await webScansRepository.find(db, ctx.org.orgId, id)))
       throw notFound("Scan not found");
     return webScansRepository.pages(db, ctx.org.orgId, id, limit);
+  },
+
+  /** Worker (daily): a scan with no progress for STALL_HOURS is failed (its job died or hung). */
+  async failStalled(tx: Tx, now = new Date()) {
+    const stalled = await webScansRepository.stalled(
+      tx,
+      new Date(now.getTime() - STALL_HOURS * 3_600_000),
+    );
+    for (const scan of stalled) {
+      const row = await webScansRepository.update(
+        tx,
+        scan.orgId,
+        scan.id,
+        {
+          status: "failed",
+          stopReason: `Stalled: no progress for ${STALL_HOURS} hours`,
+          finishedAt: now,
+        },
+        ["queued", "running"],
+      );
+      if (row)
+        await audit(tx, WORKER, row, "web_scan.failed", {
+          reason: "stalled",
+          pagesFetched: row.pagesFetched,
+        });
+    }
+    return { failed: stalled.length };
   },
 
   /** Worker: one chunk of the crawl (outside any transaction). */

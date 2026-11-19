@@ -3,6 +3,8 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
+import { timeout } from "hono/timeout";
+import { publicReadLimit } from "./middleware/rate-limit.ts";
 import { env } from "../config/env.ts";
 import { errorHandler } from "./error-handler.ts";
 import { requestLogger } from "./middleware/request-logger.ts";
@@ -63,6 +65,16 @@ base.use("*", requestId());
 base.use("*", requestLogger);
 base.use("*", secureHeaders());
 
+// Responses with org data must never be cached by browsers or proxies.
+const CACHEABLE = /^\/(?:public|docs|openapi|health)(?:\/|$|\.)/;
+base.use("*", async (c, next) => {
+  await next();
+  if (!CACHEABLE.test(c.req.path)) c.header("Cache-Control", "no-store");
+});
+
+// Unauthenticated endpoints: per-network limit on top of the route-specific ones.
+base.use("/public/*", publicReadLimit);
+
 // Bearer tokens everywhere; only routes that read or set the httpOnly refresh
 // cookie allow credentialed CORS.
 const usesSessionCookie = (path: string) =>
@@ -97,10 +109,17 @@ const largeBodyLimit = bodyLimit({
 });
 const EVIDENCE_PATH =
   /^\/orgs\/[^/]+\/(?:breaches\/[^/]+\/evidence|compliance\/controls\/[^/]+\/[^/]+\/evidence-files|vendor-contracts\/[^/]+\/file)$/;
+const isUpload = (path: string) =>
+  path === "/ci/code-scans/sarif" || EVIDENCE_PATH.test(path);
 base.use("*", (c, next) =>
-  (c.req.path === "/ci/code-scans/sarif" || EVIDENCE_PATH.test(c.req.path)
-    ? largeBodyLimit
-    : defaultBodyLimit)(c, next),
+  (isUpload(c.req.path) ? largeBodyLimit : defaultBodyLimit)(c, next),
+);
+
+// A request that hangs (slow DB, stuck dependency) is cut off; uploads get longer.
+const requestTimeout = timeout(30_000);
+const uploadTimeout = timeout(120_000);
+base.use("*", (c, next) =>
+  (isUpload(c.req.path) ? uploadTimeout : requestTimeout)(c, next),
 );
 
 base.openAPIRegistry.registerComponent("securitySchemes", "Bearer", {

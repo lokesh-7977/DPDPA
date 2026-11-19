@@ -344,6 +344,13 @@
       "when": 1795072698345,
       "tag": "0048_assessment_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1795073107767,
+      "tag": "0049_rate_limit_buckets",
+      "breakpoints": true
     }
   ]
 }

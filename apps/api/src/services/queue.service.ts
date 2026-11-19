@@ -27,6 +27,7 @@ export type JobPayloads = {
   "web_scan.crawl": { scanId: string; chunk: number };
   "training.reminders": { day: string };
   "assessment.render": { assessmentId: string };
+  "system.cleanup": { day: string };
 };
 
 export const queueService = {
@@ -143,6 +144,15 @@ export const queueService = {
         { day },
         {
           idempotencyKey: `training.reminders:${day}`,
+        },
+      );
+      await queueService.enqueue(
+        tx,
+        "system.cleanup",
+        null,
+        { day },
+        {
+          idempotencyKey: `system.cleanup:${day}`,
         },
       );
     });
