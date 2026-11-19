@@ -7,6 +7,7 @@ export * from "./artifacts/index.ts";
 export * from "./assets/index.ts";
 export * from "./audit-log/index.ts";
 export * from "./auth/index.ts";
+export * from "./assessments/index.ts";
 export * from "./auditor-rooms/index.ts";
 export * from "./breach/index.ts";
 export * from "./compliance/index.ts";

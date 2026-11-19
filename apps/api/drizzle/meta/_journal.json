@@ -330,6 +330,20 @@
       "when": 1795071977178,
       "tag": "0046_auditor_room_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1795072695282,
+      "tag": "0047_assessments",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1795072698345,
+      "tag": "0048_assessment_guards",
+      "breakpoints": true
     }
   ]
 }
