@@ -57,7 +57,7 @@ async function collect(ctx: OrgContext, now: Date) {
     complianceService.summary(ctx),
     complianceService.list(ctx),
     risksService.list(ctx, {}),
-    policyDocumentsService.list(ctx),
+    policyDocumentsService.list(ctx, { limit: 10_000, offset: 0 }),
     trainingService.report(ctx),
     workforceRepository.listReviews(db, orgId),
     programRepository.latest(db, orgId),
@@ -231,6 +231,22 @@ export const assessmentsService = {
     const a = await assessmentsRepository.find(db, ctx.org.orgId, id);
     if (!a) throw notFound("Assessment not found");
     return a;
+  },
+
+  /** Worker: the render job gave up after its retries. */
+  markFailed(orgId: string, id: string) {
+    return db.transaction(async (tx) => {
+      const a = await assessmentsRepository.find(tx, orgId, id);
+      if (!a || a.status !== "generating") return;
+      await assessmentsRepository.update(tx, orgId, id, { status: "failed" });
+      await auditService.record(tx, WORKER, {
+        orgId,
+        action: "assessment.failed",
+        entityType: "assessment",
+        entityId: id,
+        payload: { number: a.number },
+      });
+    });
   },
 
   /** Worker: PDF report + JSON evidence pack from the frozen snapshot. */

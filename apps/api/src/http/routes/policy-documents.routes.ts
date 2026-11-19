@@ -13,6 +13,7 @@ import {
   jsonBody,
 } from "../openapi.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
+import { PageQuery } from "../schemas/paging/index.ts";
 
 /** Phase 9b — policies: templates, approval workflow with separation of duties, attestations. */
 const base = {
@@ -102,7 +103,7 @@ const listRoute = createRoute({
   path: "/{orgId}/policies",
   summary:
     "Policies with their current approved version, open draft and attestation progress",
-  request: { params: OrgIdParam },
+  request: { params: OrgIdParam, query: PageQuery },
   responses: {
     200: json(
       z.array(
@@ -341,7 +342,10 @@ const attestationsRoute = createRoute({
 
 export const policyDocumentsRoutes = createRouter()
   .openapi(listRoute, async (c) => {
-    const rows = await policyDocumentsService.list(orgContext(c));
+    const rows = await policyDocumentsService.list(
+      orgContext(c),
+      c.req.valid("query"),
+    );
     return c.json(
       rows.map((r) => ({
         ...r,

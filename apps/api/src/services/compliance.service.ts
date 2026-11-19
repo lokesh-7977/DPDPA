@@ -9,6 +9,7 @@ import {
 import type { OrgContext } from "../domain/auth.ts";
 import {
   addDays,
+  automaticChecks,
   controlStatus,
   DEFAULT_REVIEW_DAYS,
   EXPIRY_WARNING_DAYS,
@@ -77,7 +78,8 @@ function evaluate(
   c: CatalogControl,
   setting: OrgControlSetting | undefined,
   evidence: ControlEvidence[],
-  f: OrgFacts,
+  f: OrgFacts | null,
+  now: Date,
 ) {
   const reviewEveryDays = setting?.reviewEveryDays ?? DEFAULT_REVIEW_DAYS;
   const nextReviewAt = setting?.lastReviewedAt
@@ -88,7 +90,7 @@ function evaluate(
     applicable: c.applicable,
     check,
     evidence,
-    now: f.now,
+    now,
   });
   return {
     id: c.id,
@@ -106,13 +108,13 @@ function evaluate(
     approvalRequired: setting?.approvalRequired ?? true,
     lastReviewedAt: setting?.lastReviewedAt ?? null,
     nextReviewAt,
-    reviewOverdue: !!nextReviewAt && nextReviewAt < f.now,
+    reviewOverdue: !!nextReviewAt && nextReviewAt < now,
     evidenceCounts: {
       current: evidence.filter(
-        (e) => e.status === "accepted" && e.validUntil > f.now,
+        (e) => e.status === "accepted" && e.validUntil > now,
       ).length,
       expired: evidence.filter(
-        (e) => e.status === "accepted" && e.validUntil <= f.now,
+        (e) => e.status === "accepted" && e.validUntil <= now,
       ).length,
       pending: evidence.filter((e) => e.status === "pending").length,
       rejected: evidence.filter((e) => e.status === "rejected").length,
@@ -138,6 +140,7 @@ async function evaluateAll(ctx: OrgContext) {
       settingBy.get(keyStr(keyOf(c))),
       evidenceBy.get(keyStr(keyOf(c))) ?? [],
       f,
+      f.now,
     ),
   );
 }
@@ -181,6 +184,43 @@ export type EvidenceInput = {
 };
 
 export const complianceService = {
+  /**
+   * Status of a few controls (e.g. the ones linked to a risk) without evaluating the whole
+   * catalog; the org facts behind automatic checks are gathered only when one is needed.
+   */
+  async statusOf(ctx: OrgContext, keys: { framework: string; code: string }[]) {
+    assertPermission(ctx, "data.read");
+    if (!keys.length) return [];
+    const now = new Date();
+    const wanted = new Set(keys.map((k) => `${k.framework}|${k.code}`));
+    const catalog = (await catalogService.orgControls(ctx)).filter((c) =>
+      wanted.has(`${c.framework}|${c.code}`),
+    );
+    const needFacts = catalog.some((c) =>
+      Object.hasOwn(automaticChecks, c.code),
+    );
+    const [settings, evidence, f] = await Promise.all([
+      complianceRepository.listSettings(db, ctx.org.orgId),
+      complianceRepository.listEvidence(db, ctx.org.orgId),
+      needFacts ? facts(ctx.org.orgId, now) : Promise.resolve(null),
+    ]);
+    const settingBy = new Map(settings.map((x) => [keyStr(x), x]));
+    const evidenceBy = new Map<string, ControlEvidence[]>();
+    for (const e of evidence) {
+      if (wanted.has(`${e.frameworkCode}|${e.controlCode}`))
+        evidenceBy.set(keyStr(e), [...(evidenceBy.get(keyStr(e)) ?? []), e]);
+    }
+    return catalog.map((c) =>
+      evaluate(
+        c,
+        settingBy.get(keyStr(keyOf(c))),
+        evidenceBy.get(keyStr(keyOf(c))) ?? [],
+        f,
+        now,
+      ),
+    );
+  },
+
   async list(
     ctx: OrgContext,
     f: {

@@ -12,7 +12,7 @@ import {
   unprocessable,
 } from "../domain/errors.ts";
 import { validateEvidenceFile } from "../domain/evidence-files.ts";
-import { utcDay } from "../domain/jobs.ts";
+import { utcDay, type Lease } from "../domain/jobs.ts";
 import { assertPermission } from "../domain/permissions.ts";
 import {
   answers as allowedAnswers,
@@ -431,15 +431,17 @@ export const vendorsService = {
    * whose yearly assessment is due within 30 days or overdue (or never done), and contracts in
    * force that expire within 30 days. Names and dates only.
    */
-  async reviewDigest(tx: Tx, now = new Date()) {
+  /** Worker (daily, detached): reads outside any transaction; one failed email doesn't stop the rest. */
+  async reviewDigest(now = new Date(), lease?: Lease) {
     const today = utcDay(now);
     const soon = addDaysToDay(today, VENDOR_ATTENTION_DAYS);
     let emails = 0;
-    for (const org of await vendorsRepository.orgsWithProcessors(tx)) {
+    for (const org of await vendorsRepository.orgsWithProcessors(db)) {
+      if (lease && !(await lease.renew())) break;
       const [vendors, assessments, contracts] = await Promise.all([
-        vendorsRepository.listProcessors(tx, org.id),
-        vendorsRepository.assessments(tx, org.id),
-        vendorsRepository.contracts(tx, org.id),
+        vendorsRepository.listProcessors(db, org.id),
+        vendorsRepository.assessments(db, org.id),
+        vendorsRepository.contracts(db, org.id),
       ]);
       const lines: string[] = [];
       for (const v of vendors) {
@@ -461,23 +463,30 @@ export const vendorsService = {
         }
       }
       if (!lines.length) continue;
-      const to = await membershipsRepository.listByRoles(tx, org.id, [
+      const to = await membershipsRepository.listByRoles(db, org.id, [
         "org_admin",
         "privacy_officer",
       ]);
       for (const m of to) {
-        await mailer.send({
-          to: m.email,
-          subject: `${org.name}: ${lines.length} vendor item(s) need attention`,
-          text: [
-            "Processors (DPDPA s.8(2)) needing attention:",
-            "",
-            ...lines,
-            "",
-            `Open them: ${env.APP_URL}/orgs/${org.id}/vendors`,
-          ].join("\n"),
-        });
-        emails++;
+        try {
+          await mailer.send({
+            to: m.email,
+            subject: `${org.name}: ${lines.length} vendor item(s) need attention`,
+            text: [
+              "Processors (DPDPA s.8(2)) needing attention:",
+              "",
+              ...lines,
+              "",
+              `Open them: ${env.APP_URL}/orgs/${org.id}/vendors`,
+            ].join("\n"),
+          });
+          emails++;
+        } catch (e) {
+          logger.warn(
+            { errName: (e as Error)?.name ?? "Error" },
+            "Vendor digest email not sent",
+          );
+        }
       }
     }
     logger.info({ emails }, "Vendor review digest sent");

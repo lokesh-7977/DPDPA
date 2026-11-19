@@ -78,13 +78,15 @@ export const handlers: { [T in JobType]: Handler<T> } = {
       ),
     ),
 
-  "vendors.review_digest": (tx, job) =>
-    vendorsService.reviewDigest(
-      tx,
-      new Date(
-        Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+  "vendors.review_digest": {
+    detached: (job, lease) =>
+      vendorsService.reviewDigest(
+        new Date(
+          Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+        ),
+        lease,
       ),
-    ),
+  },
 
   // s.8(7) / r.8: schedule (with the 48 h notice) and carry out erasures that have come due.
   // Detached: batches commit one by one; notices are their own jobs.
@@ -132,13 +134,15 @@ export const handlers: { [T in JobType]: Handler<T> } = {
   },
 
   // Phase 9e: daily training reminders (due within 7 days or overdue).
-  "training.reminders": (tx, job) =>
-    trainingService.reminders(
-      tx,
-      new Date(
-        Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+  "training.reminders": {
+    detached: (job, lease) =>
+      trainingService.reminders(
+        new Date(
+          Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+        ),
+        lease,
       ),
-    ),
+  },
 
   // Phase 6: PDF report + evidence pack of a frozen assessment.
   "assessment.render": (tx, job) =>
@@ -153,6 +157,23 @@ export const handlers: { [T in JobType]: Handler<T> } = {
       ),
     ),
 };
+
+/** Clean-up when a job used all its attempts (dead): leave no record stuck in progress. */
+export const onDead: Partial<Record<JobType, (job: Job) => Promise<unknown>>> =
+  {
+    "web_scan.crawl": async (job) =>
+      job.orgId &&
+      webScansService.failForDeadJob(
+        job.orgId,
+        (job.payload as JobPayloads["web_scan.crawl"]).scanId,
+      ),
+    "assessment.render": async (job) =>
+      job.orgId &&
+      assessmentsService.markFailed(
+        job.orgId,
+        (job.payload as JobPayloads["assessment.render"]).assessmentId,
+      ),
+  };
 
 export const isJobType = (t: string): t is JobType =>
   Object.hasOwn(handlers, t);

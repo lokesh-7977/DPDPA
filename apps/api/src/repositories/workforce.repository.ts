@@ -157,7 +157,26 @@ export const workforceRepository = {
       );
   },
 
-  /** Open assignments due by `until` that were not reminded today (active orgs, current members). Locked. */
+  /** Claims today's reminder for an open assignment; false if it was already claimed today. */
+  async markReminded(ex: Executor, id: string, today: string) {
+    const rows = await ex
+      .update(trainingAssignments)
+      .set({ lastRemindedOn: today })
+      .where(
+        and(
+          eq(trainingAssignments.id, id),
+          isNull(trainingAssignments.completedAt),
+          or(
+            isNull(trainingAssignments.lastRemindedOn),
+            ne(trainingAssignments.lastRemindedOn, today),
+          ),
+        ),
+      )
+      .returning({ id: trainingAssignments.id });
+    return rows.length === 1;
+  },
+
+  /** Open assignments due by `until` that were not reminded today (active orgs, current members); each is then claimed with markReminded. */
   dueForReminder(ex: Executor, until: string, today: string) {
     return ex
       .select({
@@ -191,8 +210,7 @@ export const workforceRepository = {
             ne(trainingAssignments.lastRemindedOn, today),
           ),
         ),
-      )
-      .for("update", { of: trainingAssignments, skipLocked: true });
+      );
   },
 
   // ─── Access reviews ────────────────────────────────────────────────────────

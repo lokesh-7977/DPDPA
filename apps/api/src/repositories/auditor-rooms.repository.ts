@@ -24,12 +24,18 @@ export const auditorRoomsRepository = {
     return row ?? null;
   },
 
-  listRooms(ex: Executor, orgId: string) {
+  listRooms(
+    ex: Executor,
+    orgId: string,
+    page: { limit: number; offset: number } = { limit: 10_000, offset: 0 },
+  ) {
     return ex
       .select()
       .from(auditorRooms)
       .where(eq(auditorRooms.orgId, orgId))
-      .orderBy(desc(auditorRooms.createdAt));
+      .orderBy(desc(auditorRooms.createdAt), desc(auditorRooms.id))
+      .limit(page.limit)
+      .offset(page.offset);
   },
 
   async updateRoom(

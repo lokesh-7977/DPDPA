@@ -309,6 +309,32 @@ describe("risk register", () => {
     assert.deepEqual(kinds.slice(0, 2), ["rescored", "accepted"]);
   });
 
+  test("lists are paged; the level filter runs in the database", async () => {
+    const one = (await t.call("GET", P("/risks?limit=1"), viewerToken)).body;
+    assert.deepEqual(
+      one.map((r: any) => r.ref),
+      ["R-001"],
+    );
+    const next = (
+      await t.call("GET", P("/risks?limit=1&offset=1"), viewerToken)
+    ).body;
+    assert.deepEqual(
+      next.map((r: any) => r.ref),
+      ["R-002"],
+    );
+    assert.equal(
+      (await t.call("GET", P("/risks?limit=501"), viewerToken)).status,
+      400,
+    );
+    const critical = (
+      await t.call("GET", P("/risks?level=critical&limit=1"), viewerToken)
+    ).body;
+    assert.deepEqual(
+      critical.map((r: any) => r.ref),
+      ["R-002"],
+    );
+  });
+
   test("review, close, reopen; heat map and filters", async () => {
     assert.ok(
       (await t.call("POST", P(`/risks/${riskId}/review`), editorToken)).body

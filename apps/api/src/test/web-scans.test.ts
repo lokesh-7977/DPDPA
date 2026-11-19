@@ -358,6 +358,27 @@ describe("website crawl", () => {
     await t.call("POST", P(`/web-scans/${s.body.id}/cancel`), dpoToken);
   });
 
+  test("a crawl job that gives up fails its scan at once and frees the domain", async () => {
+    const { webScansService } =
+      await import("../services/web-scans.service.ts");
+    const s = await t.call("POST", P("/web-scans"), dpoToken, {
+      authorizationId: authId,
+      maxPages: 5,
+      maxDepth: 1,
+    });
+    await webScansService.failForDeadJob(org.orgId, s.body.id);
+    const scan = (await t.call("GET", P(`/web-scans/${s.body.id}`), dpoToken))
+      .body.scan;
+    assert.equal(scan.status, "failed");
+    const again = await t.call("POST", P("/web-scans"), dpoToken, {
+      authorizationId: authId,
+      maxPages: 5,
+      maxDepth: 1,
+    });
+    assert.equal(again.status, 202, "domain free again");
+    await t.call("POST", P(`/web-scans/${again.body.id}/cancel`), dpoToken);
+  });
+
   test("cancel: DPO / admin, once", async () => {
     const s = await t.call("POST", P("/web-scans"), org.adminToken, {
       authorizationId: authId,

@@ -115,11 +115,14 @@ async function loadVersion(
 }
 
 export const policyDocumentsService = {
-  async list(ctx: OrgContext) {
+  async list(
+    ctx: OrgContext,
+    page: { limit: number; offset: number } = { limit: 100, offset: 0 },
+  ) {
     assertPermission(ctx, "data.read");
     const orgId = ctx.org.orgId;
     const [list, live, counts, members, mine] = await Promise.all([
-      policiesRepository.list(db, orgId),
+      policiesRepository.list(db, orgId, page),
       policiesRepository.liveVersions(db, orgId),
       policiesRepository.attestationCounts(db, orgId),
       policiesRepository.memberCount(db, orgId),

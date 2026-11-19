@@ -22,6 +22,7 @@ import {
   jsonBody,
 } from "../openapi.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
+import { PageFields } from "../schemas/paging/index.ts";
 
 /** Phase 9d — organization risk register. */
 const base = {
@@ -194,6 +195,7 @@ const listRoute = createRoute({
       ownerUserId: z.uuid().optional(),
       level: Level.optional(),
       reviewOverdue: z.stringbool().optional(),
+      ...PageFields,
     }),
   },
   responses: { 200: json(z.array(RiskSchema), "Risks"), ...errors },

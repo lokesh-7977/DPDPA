@@ -89,9 +89,12 @@ const usable = (o: Opened | null, now: Date) =>
 export const auditorRoomsService = {
   // ─── Org side ──────────────────────────────────────────────────────────────
 
-  async list(ctx: OrgContext) {
+  async list(
+    ctx: OrgContext,
+    page: { limit: number; offset: number } = { limit: 100, offset: 0 },
+  ) {
     assertPermission(ctx, "members.read");
-    return auditorRoomsRepository.listRooms(db, ctx.org.orgId);
+    return auditorRoomsRepository.listRooms(db, ctx.org.orgId, page);
   },
 
   async get(ctx: OrgContext, roomId: string) {

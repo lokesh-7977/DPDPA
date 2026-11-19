@@ -57,11 +57,14 @@ export async function transferFacts(ex: Executor, orgId: string, day: string) {
 export const transfersService = {
   // ─── Org register ──────────────────────────────────────────────────────────
 
-  async list(ctx: OrgContext) {
+  async list(
+    ctx: OrgContext,
+    page: { limit: number; offset: number } = { limit: 100, offset: 0 },
+  ) {
     assertPermission(ctx, "data.read");
     const day = utcDay(new Date());
     const [rows, restrictions, org] = await Promise.all([
-      transfersRepository.list(db, ctx.org.orgId),
+      transfersRepository.list(db, ctx.org.orgId, page),
       transfersRepository.restrictions(db),
       organizationsRepository.findById(db, ctx.org.orgId),
     ]);
