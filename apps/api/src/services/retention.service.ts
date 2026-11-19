@@ -512,6 +512,28 @@ export const retentionService = {
   },
 };
 
+/**
+ * The person's email changed after the r.8(2) erasure notice went out: that notice reached the old
+ * address. The schedule stays; the sent mark is cleared so the sweep re-sends to the new address,
+ * and erasure waits 48 h after that notice. Nothing to do when no notice was sent yet.
+ */
+export async function resetErasureNotice(
+  tx: Tx,
+  orgId: string,
+  principalId: string,
+  actor: Actor,
+) {
+  const before = await retentionRepository.find(tx, orgId, principalId);
+  if (!before?.erasureScheduledFor || !before.erasureNoticeSentAt) return;
+  await retentionRepository.update(tx, orgId, principalId, {
+    erasureNoticeSentAt: null,
+  });
+  await audit(tx, actor, orgId, "retention.notice_reset", principalId, {
+    reason: before.erasureReason,
+    cause: "contact_corrected",
+  });
+}
+
 /** For consent grants: the person approached the fiduciary (r.8 "last approached"). */
 export async function touchActivity(
   tx: Tx,

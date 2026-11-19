@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { env } from "../../config/env.ts";
 import { controlStatuses } from "../../domain/compliance.ts";
@@ -238,6 +239,30 @@ async function dispatch(c: Context<AppEnv>, req: JsonRpcRequest) {
 }
 
 export const mcpRoutes = new Hono<AppEnv>()
+  // Auth / rate-limit failures as JSON-RPC errors too (status and Retry-After kept).
+  .onError((err, c) => {
+    if (err instanceof HTTPException) {
+      const status = err.status;
+      if (status === 401)
+        c.header("WWW-Authenticate", 'Bearer realm="dpdpa-mcp"');
+      return c.json(
+        rpcError(
+          null,
+          JSONRPC.INVALID_REQUEST,
+          err.message || "Request refused",
+        ),
+        status,
+      );
+    }
+    logger.error(
+      { errName: err.name, requestId: c.get("requestId") },
+      "MCP request failed",
+    );
+    return c.json(
+      rpcError(null, JSONRPC.INTERNAL_ERROR, "Internal error"),
+      500,
+    );
+  })
   // DNS-rebinding defence (MCP transport spec): a browser Origin must be one we serve.
   .use("*", async (c, next) => {
     const origin = c.req.header("origin");

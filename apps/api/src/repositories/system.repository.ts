@@ -1,5 +1,5 @@
-import { lt, sql } from "drizzle-orm";
-import { rateLimitBuckets, type Executor } from "../db/index.ts";
+import { and, eq, lt, sql } from "drizzle-orm";
+import { digestMarkers, rateLimitBuckets, type Executor } from "../db/index.ts";
 
 export const systemRepository = {
   /** Readiness: the database answers. */
@@ -25,6 +25,37 @@ export const systemRepository = {
         resetAt: rateLimitBuckets.resetAt,
       });
     return row!;
+  },
+
+  /** Claims an org's digest for a day; false if it was already claimed. */
+  async claimDigest(ex: Executor, orgId: string, kind: string, day: string) {
+    const rows = await ex
+      .insert(digestMarkers)
+      .values({ orgId, kind, day })
+      .onConflictDoNothing()
+      .returning({ orgId: digestMarkers.orgId });
+    return rows.length === 1;
+  },
+
+  async releaseDigest(ex: Executor, orgId: string, kind: string, day: string) {
+    await ex
+      .delete(digestMarkers)
+      .where(
+        and(
+          eq(digestMarkers.orgId, orgId),
+          eq(digestMarkers.kind, kind),
+          eq(digestMarkers.day, day),
+        ),
+      );
+  },
+
+  /** Markers only matter for same-day retries. */
+  async purgeDigestMarkers(ex: Executor, beforeDay: string) {
+    const rows = await ex
+      .delete(digestMarkers)
+      .where(lt(digestMarkers.day, beforeDay))
+      .returning({ orgId: digestMarkers.orgId });
+    return rows.length;
   },
 
   async purgeBuckets(ex: Executor, now: Date) {

@@ -747,6 +747,31 @@ describe("part 2 follow-ups", () => {
     assert.equal(res.status, 404);
   });
 
+  test("the vendor digest is claimed per org and day: a retry never re-sends", async () => {
+    const { vendorsService } = await import("../services/vendors.service.ts");
+    const day = new Date("2031-03-01T06:00:00Z");
+    const first = await vendorsService.reviewDigest(day);
+    const again = await vendorsService.reviewDigest(day);
+    assert.ok(first.emails > 0);
+    assert.equal(again.emails, 0);
+  });
+
+  test("a digest whose every email failed is released for a retry", async () => {
+    const { vendorsService } = await import("../services/vendors.service.ts");
+    const { mailer } = await import("../services/mailer.ts");
+    const day = new Date("2031-04-01T06:00:00Z");
+    const send = mailer.send;
+    mailer.send = async () => {
+      throw new Error("provider down");
+    };
+    try {
+      assert.equal((await vendorsService.reviewDigest(day)).emails, 0);
+    } finally {
+      mailer.send = send;
+    }
+    assert.ok((await vendorsService.reviewDigest(day)).emails > 0);
+  });
+
   test("daily vendor digest: never-assessed vendors, reviews and contracts due within 30 days", async () => {
     // Run the job as of 10 days before MailCo's DPA-2026-04 expires (2028-03-31).
     await runOnce({ now: new Date("2028-03-21T06:00:00Z"), batch: 50 });

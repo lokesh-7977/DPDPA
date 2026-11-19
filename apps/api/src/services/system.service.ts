@@ -1,3 +1,4 @@
+import { utcDay } from "../domain/jobs.ts";
 import { logger } from "../config/logger.ts";
 import { db, type Tx } from "../db/index.ts";
 import { systemRepository } from "../repositories/system.repository.ts";
@@ -23,8 +24,15 @@ export const systemService = {
   /** Daily: drop expired rate-limit buckets; fail web scans that stopped making progress. */
   async cleanup(tx: Tx, now = new Date()) {
     const buckets = await systemRepository.purgeBuckets(tx, now);
+    const markers = await systemRepository.purgeDigestMarkers(
+      tx,
+      utcDay(new Date(now.getTime() - 7 * 86_400_000)),
+    );
     const scans = await webScansService.failStalled(tx, now);
-    logger.info({ buckets, stalledScans: scans.failed }, "System cleanup done");
+    logger.info(
+      { buckets, digestMarkers: markers, stalledScans: scans.failed },
+      "System cleanup done",
+    );
     return { buckets, stalledScans: scans.failed };
   },
 };

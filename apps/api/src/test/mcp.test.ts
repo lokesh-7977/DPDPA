@@ -357,6 +357,31 @@ describe("MCP server", () => {
     assert.equal(get.status, 405);
   });
 
+  test("a revoked key is refused at once, as a JSON-RPC error", async () => {
+    const created = await t.call("POST", P("/api-keys"), org.adminToken, {
+      name: "temp",
+      scopes: ["mcp:read"],
+    });
+    assert.equal((await rpc(created.body.key, "ping")).status, 200);
+    await t.call("DELETE", P(`/api-keys/${created.body.apiKey.id}`), org.adminToken);
+    const res = await t.app.request("/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${created.body.key}`,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+    });
+    assert.equal(res.status, 401);
+    assert.match(res.headers.get("www-authenticate") ?? "", /^Bearer/);
+    const body = (await res.json()) as {
+      jsonrpc: string;
+      error: { code: number };
+    };
+    assert.equal(body.jsonrpc, "2.0");
+    assert.equal(body.error.code, -32600);
+  });
+
   test("org isolation: a key only ever sees its own org", async () => {
     assert.deepEqual(
       (await call(otherKey, "list_risks")).structuredContent.items,

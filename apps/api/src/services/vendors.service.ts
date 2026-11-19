@@ -32,6 +32,7 @@ import {
 } from "../domain/vendors.ts";
 import { membershipsRepository } from "../repositories/memberships.repository.ts";
 import { vendorsRepository } from "../repositories/vendors.repository.ts";
+import { systemRepository } from "../repositories/system.repository.ts";
 import { artifactsService } from "./artifacts.service.ts";
 import { auditService } from "./audit.service.ts";
 import { mailer } from "./mailer.ts";
@@ -467,6 +468,17 @@ export const vendorsService = {
         "org_admin",
         "privacy_officer",
       ]);
+      // Claimed just before sending: a retry after a mid-run failure never emails this org twice.
+      if (
+        !(await systemRepository.claimDigest(
+          db,
+          org.id,
+          "vendors.review_digest",
+          today,
+        ))
+      )
+        continue;
+      let sent = 0;
       for (const m of to) {
         try {
           await mailer.send({
@@ -481,6 +493,7 @@ export const vendorsService = {
             ].join("\n"),
           });
           emails++;
+          sent++;
         } catch (e) {
           logger.warn(
             { errName: (e as Error)?.name ?? "Error" },
@@ -488,6 +501,14 @@ export const vendorsService = {
           );
         }
       }
+      // Every send failed (e.g. mail provider down): release the claim so a retry can send.
+      if (to.length && !sent)
+        await systemRepository.releaseDigest(
+          db,
+          org.id,
+          "vendors.review_digest",
+          today,
+        );
     }
     logger.info({ emails }, "Vendor review digest sent");
     return { emails };

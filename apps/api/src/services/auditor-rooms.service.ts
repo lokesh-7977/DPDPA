@@ -51,8 +51,15 @@ const audit = (
     payload,
   });
 
+/** An unexpired link is replaced on request only once it is this old. */
+const LINK_RESEND_HOURS = 24;
+
 const linkFor = (token: string) =>
-  `${env.APP_URL}/auditor?token=${encodeURIComponent(token)}`;
+  // Fragment, not query: browsers never send it to servers, proxies or Referer headers.
+  // Web page contract (docs/operations.md): read location.hash once, clear it with
+  // history.replaceState, POST it in the body to /auditor/session, keep the session token in
+  // memory / sessionStorage only, no third-party scripts on the page.
+  `${env.APP_URL}/auditor#token=${encodeURIComponent(token)}`;
 
 async function sendLink(
   email: string,
@@ -299,10 +306,33 @@ export const auditorRoomsService = {
         email.trim().toLowerCase(),
       );
       if (!usable(o, new Date())) return null;
+      // An unexpired link is only replaced once it is a day old: a stranger who knows the room
+      // and email can't keep cancelling the auditor's link or flood their inbox (at most one
+      // self-service link per grant per day). The auditor's newest email always works.
+      const issuedAt = o!.grant.linkExpiresAt
+        ? o!.grant.linkExpiresAt.getTime() - ROOM_LINK_HOURS * 3_600_000
+        : 0;
+      const unexpired =
+        !!o!.grant.linkHash &&
+        !!o!.grant.linkExpiresAt &&
+        o!.grant.linkExpiresAt.getTime() > Date.now();
+      if (unexpired && Date.now() - issuedAt < LINK_RESEND_HOURS * 3_600_000)
+        return null;
       return { o: o!, token: await issueLink(tx, o!.grant.id) };
     });
-    if (r) await sendLink(r.o.grant.email, r.o.orgName, r.o.room, r.token);
-    else logger.info("Auditor link requested for a closed or unknown access");
+    // Sent in the background: the response takes the same time whether or not access exists.
+    if (r) {
+      void sendLink(r.o.grant.email, r.o.orgName, r.o.room, r.token).catch(
+        (e: unknown) =>
+          logger.warn(
+            { errName: (e as Error)?.name ?? "Error" },
+            "Auditor link email not sent",
+          ),
+      );
+    } else
+      logger.info(
+        "Auditor link not sent (closed, unknown, or a fresh link is pending)",
+      );
   },
 
   /** Re-checks room, grant and org on every request; null when access is closed. */
