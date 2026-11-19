@@ -26,6 +26,7 @@ export type JobPayloads = {
   "domains.recheck": { day: string };
   "web_scan.crawl": { scanId: string; chunk: number };
   "training.reminders": { day: string };
+  "assessment.render": { assessmentId: string };
 };
 
 export const queueService = {

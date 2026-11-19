@@ -14,6 +14,7 @@ export const jobTypes = [
   "domains.recheck",
   "web_scan.crawl",
   "training.reminders",
+  "assessment.render",
 ] as const;
 export type JobType = (typeof jobTypes)[number];
 
