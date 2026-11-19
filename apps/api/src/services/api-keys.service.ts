@@ -2,7 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { db } from "../db/index.ts";
 import { parseApiKey } from "../domain/api-keys.ts";
 import type { ApiKeyCaller, ApiKeyScope, OrgContext } from "../domain/auth.ts";
-import { notFound } from "../domain/errors.ts";
+import { notFound, unprocessable } from "../domain/errors.ts";
 import { assertPermission } from "../domain/permissions.ts";
 import { apiKeysRepository } from "../repositories/api-keys.repository.ts";
 import { organizationsRepository } from "../repositories/organizations.repository.ts";
@@ -18,12 +18,21 @@ const TOUCH_INTERVAL_MS = 60_000;
 
 export const apiKeysService = {
   /** Returns the plaintext key once; only its hash is stored. */
-  create(ctx: OrgContext, input: { name: string; scopes: ApiKeyScope[]; expiresInDays?: number }) {
+  create(
+    ctx: OrgContext,
+    input: { name: string; scopes: ApiKeyScope[]; expiresInDays?: number },
+  ) {
     assertPermission(ctx, "org.manage");
+    // An AI assistant's key lives in plain-text client config: it must never be able to write.
+    if (input.scopes.includes("mcp:read") && new Set(input.scopes).size > 1) {
+      throw unprocessable("mcp:read can't be combined with other scopes");
+    }
     const prefix = randomPrefix();
     const secret = randomBytes(32).toString("base64url");
     const plaintext = `dpk_${prefix}_${secret}`;
-    const expiresAt = input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86_400_000) : null;
+    const expiresAt = input.expiresInDays
+      ? new Date(Date.now() + input.expiresInDays * 86_400_000)
+      : null;
     return db.transaction(async (tx) => {
       const key = await apiKeysRepository.insert(tx, {
         orgId: ctx.org.orgId,
@@ -39,7 +48,10 @@ export const apiKeysService = {
         action: "api_key.created",
         entityType: "api_key",
         entityId: key.id,
-        payload: { scopes: input.scopes, expiresAt: expiresAt?.toISOString() ?? null },
+        payload: {
+          scopes: input.scopes,
+          expiresAt: expiresAt?.toISOString() ?? null,
+        },
       });
       return { key, plaintext };
     });
@@ -53,7 +65,12 @@ export const apiKeysService = {
   revoke(ctx: OrgContext, keyId: string) {
     assertPermission(ctx, "org.manage");
     return db.transaction(async (tx) => {
-      const key = await apiKeysRepository.revoke(tx, ctx.org.orgId, keyId, new Date());
+      const key = await apiKeysRepository.revoke(
+        tx,
+        ctx.org.orgId,
+        keyId,
+        new Date(),
+      );
       if (!key) throw notFound("API key not found");
       await auditService.record(tx, ctx.actor, {
         orgId: ctx.org.orgId,
@@ -77,9 +94,16 @@ export const apiKeysService = {
     if (key.revokedAt || (key.expiresAt && key.expiresAt <= now)) return null;
     const org = await organizationsRepository.findById(db, key.orgId);
     if (!org || org.status !== "active") return null;
-    if (!key.lastUsedAt || now.getTime() - key.lastUsedAt.getTime() > TOUCH_INTERVAL_MS) {
+    if (
+      !key.lastUsedAt ||
+      now.getTime() - key.lastUsedAt.getTime() > TOUCH_INTERVAL_MS
+    ) {
       await apiKeysRepository.touch(db, key.id, now);
     }
-    return { keyId: key.id, orgId: key.orgId, scopes: key.scopes as ApiKeyScope[] };
+    return {
+      keyId: key.id,
+      orgId: key.orgId,
+      scopes: key.scopes as ApiKeyScope[],
+    };
   },
 };
