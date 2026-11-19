@@ -111,6 +111,14 @@ export const rightsSubmitLimit = rateLimit({
   windowMs: FIFTEEN_MIN,
   key: byNetwork,
 });
+/** MCP requests: per API key (after authenticateApiKey). */
+export const mcpLimit = rateLimit({
+  name: "mcp",
+  max: 120,
+  windowMs: 60_000,
+  key: (c) => c.var.apiKey?.keyId ?? null,
+});
+
 /** Every public (unauthenticated) read: per network. */
 export const publicReadLimit = rateLimit({
   name: "public-read",

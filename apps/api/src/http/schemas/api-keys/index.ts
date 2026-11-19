@@ -4,9 +4,23 @@ import { apiKeyScopes } from "../../../domain/auth.ts";
 
 export const CreateApiKeySchema = z
   .object({
-    name: z.string().trim().min(1).max(100).openapi({ example: "GitHub Actions – payments-api" }),
-    scopes: z.array(z.enum(apiKeyScopes)).min(1).max(10).default(["scans:upload"]),
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .openapi({ example: "GitHub Actions – payments-api" }),
+    scopes: z
+      .array(z.enum(apiKeyScopes))
+      .min(1)
+      .max(10)
+      .default(["scans:upload"]),
     expiresInDays: z.number().int().min(1).max(730).optional(),
+  })
+  .refine((v) => !v.scopes.includes("mcp:read") || v.scopes.length === 1, {
+    message:
+      "mcp:read can't be combined with other scopes (an AI assistant's key must stay read-only)",
+    path: ["scopes"],
   })
   .openapi("CreateApiKey");
 

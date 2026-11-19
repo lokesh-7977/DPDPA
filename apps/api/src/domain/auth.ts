@@ -18,7 +18,7 @@ export type UserCaller = { userId: string; isSuperAdmin: boolean };
 export type OrgAccess = {
   orgId: string;
   role: OrgRole;
-  via: "membership" | "break_glass" | "auditor_room";
+  via: "membership" | "break_glass" | "auditor_room" | "mcp";
   breakGlassSessionId?: string;
   /** Auditor room access (read-only, scoped): the grant used. */
   auditorGrantId?: string;
@@ -31,6 +31,7 @@ export type OrgAccess = {
  * - consents:write    register principals, grant / withdraw consent (also allows read)
  * - principals:erase  execute right-to-erasure requests (DPDPA s.12)
  * - rights:submit     file Data Principal rights requests for users the customer already authenticated
+ * - mcp:read          read-only MCP access for AI assistants (score, controls, backlog, risks, policies)
  */
 export const apiKeyScopes = [
   "scans:upload",
@@ -38,6 +39,7 @@ export const apiKeyScopes = [
   "consents:write",
   "principals:erase",
   "rights:submit",
+  "mcp:read",
 ] as const;
 export type ApiKeyScope = (typeof apiKeyScopes)[number];
 export type ApiKeyCaller = {

@@ -44,6 +44,7 @@ import { risksRoutes } from "./routes/risks.routes.ts";
 import { workforceRoutes } from "./routes/workforce.routes.ts";
 import { questionnairesRoutes } from "./routes/questionnaires.routes.ts";
 import { assessmentsRoutes } from "./routes/assessments.routes.ts";
+import { mcpRoutes } from "./routes/mcp.routes.ts";
 import {
   auditorRoutes,
   orgAuditorRoomsRoutes,
@@ -173,13 +174,18 @@ const routes = base
   .route("/catalog", catalogRoutes)
   .route("/ci", ciRoutes);
 
+// MCP (AI assistants) sits outside the typed chain: the web app never calls it, and its
+// JSON-RPC types must not leak into AppType. Guide: docs/integrations/mcp.md.
+routes.route("/mcp", mcpRoutes);
+
 routes.doc31("/openapi.json", {
   openapi: "3.1.0",
   info: {
     title: "DPDPA Compliance Platform API",
     version: "0.1.0",
     description:
-      "Consent records, data principals and append-only audit trail for India's DPDP Act, 2023.",
+      "Consent records, data principals and append-only audit trail for India's DPDP Act, 2023. " +
+      "AI assistants connect to the read-only MCP server at POST /mcp (see docs/integrations/mcp.md).",
   },
 });
 routes.get("/docs", Scalar({ url: "/openapi.json", pageTitle: "DPDPA API" }));
