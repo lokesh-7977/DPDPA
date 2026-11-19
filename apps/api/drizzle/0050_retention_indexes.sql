@@ -1,0 +1,2 @@
+CREATE INDEX "data_principals_retention_idx" ON "data_principals" USING btree ("last_active_at","id") WHERE "data_principals"."erased_at" IS NULL AND "data_principals"."erasure_scheduled_for" IS NULL;--> statement-breakpoint
+CREATE INDEX "data_principals_erasure_due_idx" ON "data_principals" USING btree ("erasure_scheduled_for") WHERE "data_principals"."erased_at" IS NULL AND "data_principals"."erasure_scheduled_for" IS NOT NULL;

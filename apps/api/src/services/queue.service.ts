@@ -7,6 +7,7 @@ import {
   retryDelayMs,
   utcDay,
   type JobType,
+  type Lease,
 } from "../domain/jobs.ts";
 import { assertPermission } from "../domain/permissions.ts";
 import { jobsRepository } from "../repositories/jobs.repository.ts";
@@ -28,6 +29,7 @@ export type JobPayloads = {
   "training.reminders": { day: string };
   "assessment.render": { assessmentId: string };
   "system.cleanup": { day: string };
+  "retention.notice": { principalId: string; scheduledFor: string };
 };
 
 export const queueService = {
@@ -207,12 +209,23 @@ export const queueService = {
   async executeDetached(
     job: Job,
     workerId: string,
-    run: () => Promise<Record<string, unknown>>,
+    run: (lease: Lease) => Promise<Record<string, unknown>>,
     now = new Date(),
   ) {
+    const lease: Lease = {
+      renew: () =>
+        jobsRepository.renewLease(
+          db,
+          job.id,
+          workerId,
+          new Date(Date.now() + JOB_LEASE_MS),
+        ),
+    };
     try {
-      const result = await run();
-      await jobsRepository.succeed(db, job.id, workerId, result, now);
+      // The batch lease may be partly used up: restart it now; if it is gone, another worker has the job.
+      if (!(await lease.renew())) return { ok: true as const, skipped: true };
+      const result = await run(lease);
+      await jobsRepository.succeed(db, job.id, workerId, result, new Date());
       return { ok: true as const };
     } catch (e) {
       const dead = await jobsRepository.fail(

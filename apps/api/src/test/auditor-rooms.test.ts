@@ -183,6 +183,27 @@ describe("auditor room (auditor side)", () => {
       (await t.call("GET", "/auditor/audit-log/verify", session)).body.valid,
       true,
     );
+    const log = (await t.call("GET", "/auditor/audit-log", session)).body;
+    assert.ok(log.length > 0);
+    for (const k of [
+      "ipHash",
+      "userAgentHash",
+      "actorId",
+      "prevHash",
+      "principalId",
+      "orgId",
+    ]) {
+      assert.equal(k in log[0], false, `audit entries hide ${k}`);
+    }
+    const listed = (await t.call("GET", "/auditor/policies", session)).body;
+    assert.deepEqual(Object.keys(listed[0]).sort(), [
+      "code",
+      "current",
+      "policyId",
+      "title",
+    ]);
+    for (const k of ["ownerUserId", "contributors", "createdBy"])
+      assert.equal(JSON.stringify(listed).includes(k), false, k);
     assert.equal(
       (await t.call("GET", "/auditor/risks", session)).status,
       403,

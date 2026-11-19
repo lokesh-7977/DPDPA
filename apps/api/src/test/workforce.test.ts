@@ -411,6 +411,7 @@ describe("access reviews", () => {
       "training.assigned",
       "training.completed",
       "access_review.started",
+      "access_review.decided",
       "access_review.completed",
       "member.role_changed",
       "member.removed",

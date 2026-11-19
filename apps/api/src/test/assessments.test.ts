@@ -231,6 +231,7 @@ describe("assessments", () => {
     const items = (await t.call("GET", P("/audit?limit=300"), org.adminToken))
       .body.items;
     assert.ok(items.some((x: any) => x.action === "assessment.created"));
+    assert.ok(items.some((x: any) => x.action === "assessment.ready"));
     assert.equal(
       (await t.call("GET", P("/audit/verify"), org.adminToken)).body.valid,
       true,

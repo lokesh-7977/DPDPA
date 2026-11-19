@@ -12,7 +12,10 @@ export type NewJob = {
 
 export const jobsRepository = {
   /** Returns the existing job when the idempotency key was already used. */
-  async insert(ex: Executor, v: NewJob): Promise<{ job: Job; created: boolean }> {
+  async insert(
+    ex: Executor,
+    v: NewJob,
+  ): Promise<{ job: Job; created: boolean }> {
     const [row] = await ex
       .insert(jobs)
       .values({
@@ -26,7 +29,11 @@ export const jobsRepository = {
       .onConflictDoNothing({ target: jobs.idempotencyKey })
       .returning();
     if (row) return { job: row, created: true };
-    const [existing] = await ex.select().from(jobs).where(eq(jobs.idempotencyKey, v.idempotencyKey!)).limit(1);
+    const [existing] = await ex
+      .select()
+      .from(jobs)
+      .where(eq(jobs.idempotencyKey, v.idempotencyKey!))
+      .limit(1);
     return { job: existing!, created: false };
   },
 
@@ -34,7 +41,13 @@ export const jobsRepository = {
    * Claim up to `limit` due jobs for one worker: queued and due, or running with an
    * expired lease (the worker crashed). SKIP LOCKED lets several workers poll safely.
    */
-  async claim(ex: Executor, workerId: string, now: Date, leaseUntil: Date, limit: number): Promise<Job[]> {
+  async claim(
+    ex: Executor,
+    workerId: string,
+    now: Date,
+    leaseUntil: Date,
+    limit: number,
+  ): Promise<Job[]> {
     const due = ex
       .select({ id: jobs.id })
       .from(jobs)
@@ -57,15 +70,56 @@ export const jobsRepository = {
       .returning();
   },
 
-  async succeed(ex: Executor, id: string, workerId: string, result: Record<string, unknown>, now: Date) {
+  /** Extends a running job's lease if this worker still holds it. */
+  async renewLease(
+    ex: Executor,
+    id: string,
+    workerId: string,
+    leaseUntil: Date,
+  ) {
+    const rows = await ex
+      .update(jobs)
+      .set({ leaseUntil })
+      .where(
+        and(
+          eq(jobs.id, id),
+          eq(jobs.lockedBy, workerId),
+          eq(jobs.status, "running"),
+        ),
+      )
+      .returning({ id: jobs.id });
+    return rows.length === 1;
+  },
+
+  async succeed(
+    ex: Executor,
+    id: string,
+    workerId: string,
+    result: Record<string, unknown>,
+    now: Date,
+  ) {
     await ex
       .update(jobs)
-      .set({ status: "succeeded", result, lastError: null, lockedBy: null, leaseUntil: null, finishedAt: now })
+      .set({
+        status: "succeeded",
+        result,
+        lastError: null,
+        lockedBy: null,
+        leaseUntil: null,
+        finishedAt: now,
+      })
       .where(and(eq(jobs.id, id), eq(jobs.lockedBy, workerId)));
   },
 
   /** Back to the queue at `retryAt`, or dead when attempts are used up. */
-  async fail(ex: Executor, job: Job, workerId: string, errorLabel: string, retryAt: Date, now: Date) {
+  async fail(
+    ex: Executor,
+    job: Job,
+    workerId: string,
+    errorLabel: string,
+    retryAt: Date,
+    now: Date,
+  ) {
     const dead = job.attempts >= job.maxAttempts;
     await ex
       .update(jobs)
@@ -90,7 +144,10 @@ export const jobsRepository = {
     return row ?? null;
   },
 
-  list(ex: Executor, f: { status?: Job["status"]; type?: string; limit: number }) {
+  list(
+    ex: Executor,
+    f: { status?: Job["status"]; type?: string; limit: number },
+  ) {
     const where = [];
     if (f.status) where.push(eq(jobs.status, f.status));
     if (f.type) where.push(eq(jobs.type, f.type));

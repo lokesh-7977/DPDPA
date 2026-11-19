@@ -351,6 +351,13 @@
       "when": 1795073107767,
       "tag": "0049_rate_limit_buckets",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1795074561270,
+      "tag": "0050_retention_indexes",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import {
   notFound,
   unprocessable,
 } from "../domain/errors.ts";
+import type { Lease } from "../domain/jobs.ts";
 import { assertPermission } from "../domain/permissions.ts";
 import {
   assertAuthorizationInput,
@@ -34,6 +35,8 @@ import { domainVerifier } from "./domain-verifier.ts";
  */
 
 const WORKER: Actor = { type: "system", id: "system:worker" };
+/** Domains re-checked per daily run (the rest wait for the next day; oldest first). */
+const RECHECK_BATCH = 200;
 
 const audit = (
   tx: Tx,
@@ -154,40 +157,60 @@ export const domainsService = {
    * Worker (daily): re-check verified domains last checked over 30 days ago with the method that
    * verified them; a failure lapses the domain, which blocks every scan until it is re-verified.
    */
-  async recheck(tx: Tx, now = new Date()) {
+  async recheck(lease: Lease, now = new Date()) {
+    const before = new Date(now.getTime() - RECHECK_DAYS * 86_400_000);
+    // Network checks never run inside a transaction: read the list, check each domain, then
+    // record each result in its own short transaction (skipped if the domain changed meanwhile).
     const due = await domainsRepository.dueForRecheck(
-      tx,
-      new Date(now.getTime() - RECHECK_DAYS * 86_400_000),
+      db,
+      before,
+      RECHECK_BATCH,
     );
+    let checked = 0;
     let lapsed = 0;
     for (const { domain: d } of due) {
+      if (!(await lease.renew())) break;
       const method = d.method ?? "dns_txt";
       const result = await domainVerifier.check(method, d.hostname, d.token);
-      await domainsRepository.addCheck(tx, {
-        orgId: d.orgId,
-        domainId: d.id,
-        method,
-        ok: result.ok,
-        detail: result.detail,
-      });
-      await domainsRepository.update(
-        tx,
-        d.orgId,
-        d.id,
-        result.ok
-          ? { lastCheckedAt: now }
-          : { lastCheckedAt: now, status: "lapsed" },
-      );
-      if (!result.ok) {
-        await audit(tx, WORKER, d.orgId, "domain.lapsed", "domain", d.id, {
+      const recorded = await db.transaction(async (tx) => {
+        const cur = await domainsRepository.find(tx, d.orgId, d.id, {
+          forUpdate: true,
+        });
+        if (
+          !cur ||
+          cur.status !== "verified" ||
+          (cur.lastCheckedAt && cur.lastCheckedAt >= before)
+        )
+          return false;
+        await domainsRepository.addCheck(tx, {
+          orgId: d.orgId,
+          domainId: d.id,
           method,
+          ok: result.ok,
           detail: result.detail,
         });
-        lapsed++;
+        await domainsRepository.update(
+          tx,
+          d.orgId,
+          d.id,
+          result.ok
+            ? { lastCheckedAt: now }
+            : { lastCheckedAt: now, status: "lapsed" },
+        );
+        if (!result.ok)
+          await audit(tx, WORKER, d.orgId, "domain.lapsed", "domain", d.id, {
+            method,
+            detail: result.detail,
+          });
+        return true;
+      });
+      if (recorded) {
+        checked++;
+        if (!result.ok) lapsed++;
       }
     }
-    logger.info({ checked: due.length, lapsed }, "Domain re-check done");
-    return { checked: due.length, lapsed };
+    logger.info({ checked, lapsed }, "Domain re-check done");
+    return { checked, lapsed };
   },
 
   // ─── Authorizations ────────────────────────────────────────────────────────

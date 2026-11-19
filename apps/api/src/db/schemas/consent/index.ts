@@ -76,6 +76,16 @@ export const dataPrincipals = pgTable(
     unique("data_principals_org_id_uq").on(t.orgId, t.id),
     uniqueIndex("data_principals_external_ref_uq").on(t.orgId, t.externalRef),
     index("data_principals_guardian_idx").on(t.orgId, t.guardianId),
+    /** Daily retention sweep: idle principals not yet scheduled, oldest activity first. */
+    index("data_principals_retention_idx")
+      .on(t.lastActiveAt, t.id)
+      .where(sql`${t.erasedAt} IS NULL AND ${t.erasureScheduledFor} IS NULL`),
+    /** Daily retention sweep: scheduled erasures by date. */
+    index("data_principals_erasure_due_idx")
+      .on(t.erasureScheduledFor)
+      .where(
+        sql`${t.erasedAt} IS NULL AND ${t.erasureScheduledFor} IS NOT NULL`,
+      ),
     foreignKey({
       name: "data_principals_guardian_fk",
       columns: [t.orgId, t.guardianId],

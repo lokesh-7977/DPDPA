@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
 import { logger } from "../config/logger.ts";
 import type { Job } from "../db/index.ts";
-import { errorLabel } from "../domain/jobs.ts";
+import { errorLabel, type Lease } from "../domain/jobs.ts";
 import { queueService } from "../services/queue.service.ts";
 import { handlers, isJobType } from "./handlers.ts";
 
@@ -18,13 +18,15 @@ async function runJob(job: Job, workerId: string, now?: Date) {
   });
   const handler = isJobType(job.type) ? handlers[job.type] : null;
   type Run = (tx: unknown, job: Job) => Promise<Record<string, unknown>>;
-  type Detached = { detached: (job: Job) => Promise<Record<string, unknown>> };
+  type Detached = {
+    detached: (job: Job, lease: Lease) => Promise<Record<string, unknown>>;
+  };
   const outcome =
     handler && typeof handler === "object"
       ? await queueService.executeDetached(
           job,
           workerId,
-          () => (handler as Detached).detached(job),
+          (lease) => (handler as Detached).detached(job, lease),
           now,
         )
       : await queueService.execute(

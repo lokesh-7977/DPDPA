@@ -136,7 +136,7 @@ export const consentsService = {
 
       // consents_active_uq enforces one live consent per principal+purpose (409 via the error mapper).
       // Giving consent is approaching the fiduciary (r.8): refreshes activity, cancels any scheduled erasure.
-      await touchActivity(tx, ctx.orgId, principal.id);
+      await touchActivity(tx, ctx.orgId, principal.id, ctx.actor, "consent");
       const consent = await consentsRepository.insert(tx, {
         ...input,
         noticeVersion,

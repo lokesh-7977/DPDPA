@@ -91,6 +91,39 @@ describe("rules (pure)", () => {
       assert.equal(isPrivateAddress(ip), true, ip);
     }
     assert.equal(isPrivateAddress("8.8.8.8"), false);
+    // Ranges and IPv6 forms that lead back into private IPv4 networks.
+    for (const ip of [
+      "0.0.0.0",
+      "192.0.0.1",
+      "192.0.2.10",
+      "198.51.100.7",
+      "203.0.113.9",
+      "240.0.0.1",
+      "255.255.255.255",
+      "::",
+      "::ffff:7f00:1", // hex-form IPv4-mapped 127.0.0.1
+      "::a9fe:a9fe", // IPv4-compatible 169.254.169.254
+      "64:ff9b::a9fe:a9fe", // NAT64 to cloud metadata
+      "64:ff9b::0a00:0001", // NAT64 to 10.0.0.1
+      "64:ff9b:1::1", // local-use NAT64
+      "2002:c0a8:0101::1", // 6to4 embedding 192.168.1.1
+      "2001:0:4136:e378::1", // Teredo
+      "2001:db8::1", // documentation
+      "fec0::1", // site-local
+      "fe80::1%eth0",
+      "not-an-ip",
+    ]) {
+      assert.equal(isPrivateAddress(ip), true, ip);
+    }
+    for (const ip of [
+      "1.1.1.1",
+      "2606:4700:4700::1111",
+      "2001:4860:4860::8888",
+      "2002:0808:0808::1",
+      "64:ff9b::0808:0808",
+    ]) {
+      assert.equal(isPrivateAddress(ip), false, ip);
+    }
   });
   test("the gate", () => {
     const now = new Date("2026-12-01T00:00:00Z");

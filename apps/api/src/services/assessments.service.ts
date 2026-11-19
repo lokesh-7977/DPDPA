@@ -265,6 +265,17 @@ export const assessmentsService = {
       evidenceArtifactId: evidence.id,
       readyAt: new Date(),
     });
+    await auditService.record(tx, WORKER, {
+      orgId,
+      action: "assessment.ready",
+      entityType: "assessment",
+      entityId: id,
+      payload: {
+        number: s.number,
+        reportArtifactId: report.id,
+        evidenceArtifactId: evidence.id,
+      },
+    });
     return { reportArtifactId: report.id, evidenceArtifactId: evidence.id };
   },
 };

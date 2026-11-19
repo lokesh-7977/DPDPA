@@ -314,6 +314,7 @@ describe("questionnaires", () => {
       "answer.updated",
       "questionnaire.created",
       "questionnaire.completed",
+      "questionnaire.answered",
     ]) {
       assert.ok(
         items.some((x: any) => x.action === a),

@@ -290,18 +290,13 @@ export const orgAuditorRoomsRoutes = createRouter()
   );
 
 // ─── Auditor side (/auditor) ─────────────────────────────────────────────────
+//
+// External auditors get explicit, allow-listed shapes only: no user ids, artifact ids,
+// contributor lists, IP / user-agent hashes or internal event data. A column added to a table
+// later never reaches the room unless it is added here.
 
 const room = { tags: ["Auditor room (auditor)"], security: bearer };
-const Loose = z.unknown();
-
-/** Dates → ISO strings, recursively (room reads reuse the services' own shapes). */
-function plain(v: unknown): unknown {
-  if (v instanceof Date) return v.toISOString();
-  if (Array.isArray(v)) return v.map(plain);
-  if (v && typeof v === "object")
-    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)]));
-  return v;
-}
+const isoOrNull = (d: Date | null | undefined) => d?.toISOString() ?? null;
 
 const read = (c: Context<AppEnv>, resource: string, id?: string) => {
   const a = c.var.auditor;
@@ -311,6 +306,147 @@ const read = (c: Context<AppEnv>, resource: string, id?: string) => {
     log: () => auditorRoomsService.logAccess(a, resource, id),
   };
 };
+
+const RoomInfo = z
+  .object({
+    name: z.string(),
+    organization: z.string(),
+    scopes: z.array(z.string()),
+    closesAt: z.iso.datetime(),
+    auditor: z.string(),
+  })
+  .openapi("AuditorRoomInfo");
+
+const RoomControl = z
+  .object({
+    framework: z.string(),
+    code: z.string(),
+    title: z.string(),
+    objective: z.string().nullable(),
+    applicable: z.boolean(),
+    status: z.string(),
+    automaticCheck: z
+      .object({ result: z.string(), reason: z.string() })
+      .nullable(),
+    evidence: z.object({
+      current: z.number().int(),
+      expired: z.number().int(),
+      pending: z.number().int(),
+      rejected: z.number().int(),
+    }),
+    lastReviewedAt: z.iso.datetime().nullable(),
+    nextReviewAt: z.iso.datetime().nullable(),
+    reviewOverdue: z.boolean(),
+  })
+  .openapi("AuditorRoomControl");
+type ControlRow = Awaited<ReturnType<typeof complianceService.list>>[number];
+const toRoomControl = (c: ControlRow) => ({
+  framework: c.framework,
+  code: c.code,
+  title: c.title,
+  objective: c.objective ?? null,
+  applicable: c.applicable,
+  status: c.status,
+  automaticCheck: c.check
+    ? { result: c.check.result, reason: c.check.reason }
+    : null,
+  evidence: c.evidenceCounts,
+  lastReviewedAt: isoOrNull(c.lastReviewedAt),
+  nextReviewAt: isoOrNull(c.nextReviewAt),
+  reviewOverdue: c.reviewOverdue,
+});
+
+const RoomEvidence = z
+  .object({
+    kind: z.string(),
+    title: z.string(),
+    description: z.string().nullable(),
+    url: z.string().nullable(),
+    hasFile: z.boolean(),
+    collectedAt: z.iso.datetime().nullable(),
+    validUntil: z.iso.datetime(),
+    status: z.string(),
+    decidedAt: z.iso.datetime().nullable(),
+  })
+  .openapi("AuditorRoomEvidence");
+type EvidenceRow = Awaited<
+  ReturnType<typeof complianceService.get>
+>["evidence"][number];
+const toRoomEvidence = (e: EvidenceRow) => ({
+  kind: e.kind,
+  title: e.title,
+  description: e.description ?? null,
+  url: e.url ?? null,
+  hasFile: !!e.artifactId,
+  collectedAt: isoOrNull(e.collectedAt),
+  validUntil: e.validUntil.toISOString(),
+  status: e.status,
+  decidedAt: isoOrNull(e.decidedAt),
+});
+
+const RoomPolicy = z
+  .object({
+    policyId: z.uuid(),
+    code: z.string(),
+    title: z.string(),
+    current: z
+      .object({
+        versionId: z.uuid(),
+        version: z.number().int(),
+        approvedAt: z.iso.datetime().nullable(),
+      })
+      .nullable(),
+  })
+  .openapi("AuditorRoomPolicy");
+
+const RoomRisk = z
+  .object({
+    id: z.uuid(),
+    ref: z.string(),
+    title: z.string(),
+    description: z.string().nullable(),
+    category: z.string(),
+    inherentScore: z.number().int(),
+    inherentLevel: z.string(),
+    residualScore: z.number().int(),
+    residualLevel: z.string(),
+    treatment: z.string(),
+    status: z.string(),
+    acceptedUntil: z.string().nullable(),
+    nextReviewAt: z.iso.datetime(),
+    reviewOverdue: z.boolean(),
+  })
+  .openapi("AuditorRoomRisk");
+type RiskRow = Awaited<ReturnType<typeof risksService.list>>[number];
+const toRoomRisk = (r: RiskRow) => ({
+  id: r.id,
+  ref: r.refLabel,
+  title: r.title,
+  description: r.description,
+  category: r.category,
+  inherentScore: r.inherentScore,
+  inherentLevel: r.inherentLevel,
+  residualScore: r.residualScore,
+  residualLevel: r.residualLevel,
+  treatment: r.treatment,
+  status: r.status,
+  acceptedUntil: r.status === "accepted" ? r.acceptedUntil : null,
+  nextReviewAt: r.nextReviewAt.toISOString(),
+  reviewOverdue: r.reviewOverdue,
+});
+
+const RoomAuditEntry = z
+  .object({
+    seq: z.number().int(),
+    occurredAt: z.iso.datetime(),
+    actorType: z.string(),
+    action: z.string(),
+    entityType: z.string(),
+    entityId: z.string().nullable(),
+    payload: z.record(z.string(), z.unknown()),
+    hash: z.string(),
+  })
+  .openapi("AuditorRoomAuditEntry");
 
 const signIn = createRoute({
   ...room,
@@ -358,91 +494,181 @@ const requestLink = createRoute({
     202: { description: "If the access is open, a link was emailed" },
   },
 });
-const roomInfo = createRoute({
-  ...room,
-  method: "get",
-  path: "/room",
-  summary: "The room: organization, shared areas, closing date",
-  middleware: [authenticateAuditor],
-  responses: {
-    200: json(Loose, "Room"),
-    401: json(ErrorSchema, "Unauthorized"),
-  },
-});
-const scoped = (
+
+const authErrors = {
+  401: json(ErrorSchema, "Unauthorized"),
+  403: json(ErrorSchema, "Not shared in this room"),
+  404: notFound,
+};
+const roomGet = <S extends z.ZodType>(
   path: string,
-  scope: (typeof roomScopes)[number],
+  scope: (typeof roomScopes)[number] | null,
   summary: string,
-  params?: z.ZodObject,
+  schema: S,
 ) =>
   createRoute({
     ...room,
     method: "get",
     path,
     summary,
-    middleware: [authenticateAuditor, roomScope(scope)],
-    request: params ? { params } : {},
-    responses: {
-      200: json(Loose, "Data"),
-      401: json(ErrorSchema, "Unauthorized"),
-      403: json(ErrorSchema, "Not shared"),
-      404: notFound,
-    },
+    middleware: scope
+      ? [authenticateAuditor, roomScope(scope)]
+      : [authenticateAuditor],
+    responses: { 200: json(schema, "Data"), ...authErrors },
   });
 
 const Id = (name: string) => z.uuid().openapi({ param: { name, in: "path" } });
-const controls = scoped(
+const roomInfo = roomGet(
+  "/room",
+  null,
+  "The room: organization, shared areas, closing date",
+  RoomInfo,
+);
+const controls = roomGet(
   "/controls",
   "controls",
   "Controls with status and evidence counts",
+  z.array(RoomControl),
 );
-const control = scoped(
-  "/controls/{framework}/{code}",
-  "controls",
-  "One control with its evidence",
-  z.object({
-    framework: z
-      .enum(["DPDPA_2023", "AIGIS_BASELINE"])
-      .openapi({ param: { name: "framework", in: "path" } }),
-    code: z
-      .string()
-      .max(50)
-      .openapi({ param: { name: "code", in: "path" } }),
-  }),
-);
-const policies = scoped(
+const control = createRoute({
+  ...room,
+  method: "get",
+  path: "/controls/{framework}/{code}",
+  summary: "One control with its evidence",
+  middleware: [authenticateAuditor, roomScope("controls")],
+  request: {
+    params: z.object({
+      framework: z
+        .enum(["DPDPA_2023", "AIGIS_BASELINE"])
+        .openapi({ param: { name: "framework", in: "path" } }),
+      code: z
+        .string()
+        .max(50)
+        .openapi({ param: { name: "code", in: "path" } }),
+    }),
+  },
+  responses: {
+    200: json(
+      z.object({ control: RoomControl, evidence: z.array(RoomEvidence) }),
+      "Control",
+    ),
+    ...authErrors,
+  },
+});
+const policies = roomGet(
   "/policies",
   "policies",
   "Policies and their current approved version",
+  z.array(RoomPolicy),
 );
-const policyVersion = scoped(
-  "/policies/{policyId}/versions/{versionId}",
-  "policies",
-  "Text of an approved (or superseded) policy version",
-  z.object({ policyId: Id("policyId"), versionId: Id("versionId") }),
-);
-const risks = scoped("/risks", "risks", "Risk register");
-const risk = scoped(
-  "/risks/{riskId}",
-  "risks",
-  "One risk with controls, tasks and history",
-  z.object({ riskId: Id("riskId") }),
-);
-const auditLog = scoped(
+const policyVersion = createRoute({
+  ...room,
+  method: "get",
+  path: "/policies/{policyId}/versions/{versionId}",
+  summary: "Text of an approved (or superseded) policy version",
+  middleware: [authenticateAuditor, roomScope("policies")],
+  request: {
+    params: z.object({ policyId: Id("policyId"), versionId: Id("versionId") }),
+  },
+  responses: {
+    200: json(
+      z.object({
+        id: z.uuid(),
+        version: z.number().int(),
+        status: z.string(),
+        approvedAt: z.iso.datetime().nullable(),
+        body: z.string(),
+      }),
+      "Policy version",
+    ),
+    ...authErrors,
+  },
+});
+const risks = roomGet("/risks", "risks", "Risk register", z.array(RoomRisk));
+const risk = createRoute({
+  ...room,
+  method: "get",
+  path: "/risks/{riskId}",
+  summary: "One risk with its controls, treatment tasks and history",
+  middleware: [authenticateAuditor, roomScope("risks")],
+  request: { params: z.object({ riskId: Id("riskId") }) },
+  responses: {
+    200: json(
+      z.object({
+        risk: RoomRisk,
+        controls: z.array(
+          z.object({
+            framework: z.string(),
+            controlCode: z.string(),
+            title: z.string().nullable(),
+            status: z.string().nullable(),
+          }),
+        ),
+        tasks: z.array(
+          z.object({
+            title: z.string(),
+            status: z.string(),
+            priority: z.string(),
+            dueDate: z.string().nullable(),
+          }),
+        ),
+        history: z.array(z.object({ kind: z.string(), at: z.iso.datetime() })),
+      }),
+      "Risk",
+    ),
+    ...authErrors,
+  },
+});
+const auditLog = roomGet(
   "/audit-log",
   "audit_log",
   "Audit trail (latest 200 entries)",
+  z.array(RoomAuditEntry),
 );
-const auditVerify = scoped(
+const auditVerify = roomGet(
   "/audit-log/verify",
   "audit_log",
   "Verify the audit trail hash chain",
+  z.object({
+    valid: z.boolean(),
+    entries: z.number().int(),
+    brokenAtSeq: z.number().int().nullable(),
+  }),
 );
-const training = scoped("/training", "training", "Training completion report");
-const accessReviews = scoped(
+const training = roomGet(
+  "/training",
+  "training",
+  "Training completion per course",
+  z.array(
+    z.object({
+      title: z.string(),
+      completed: z.number().int(),
+      open: z.number().int(),
+      overdue: z.number().int(),
+    }),
+  ),
+);
+const accessReviews = roomGet(
   "/access-reviews",
   "access_reviews",
-  "Access reviews",
+  "Access reviews and what they changed",
+  z.array(
+    z.object({
+      status: z.string(),
+      dueDate: z.string(),
+      startedAt: z.iso.datetime(),
+      completedAt: z.iso.datetime().nullable(),
+      summary: z
+        .object({
+          kept: z.number(),
+          rolesChanged: z.number(),
+          removed: z.number(),
+          keysRevoked: z.number(),
+          skipped: z.number(),
+        })
+        .nullable(),
+    }),
+  ),
 );
 
 export const auditorRoutes = createRouter()
@@ -464,31 +690,54 @@ export const auditorRoutes = createRouter()
   })
   .openapi(roomInfo, async (c) => {
     const { a, log } = read(c, "room");
+    const r = await auditorRoomsService.room(a);
     await log();
-    return c.json(plain(await auditorRoomsService.room(a)), 200);
+    return c.json({ ...r, closesAt: r.closesAt.toISOString() }, 200);
   })
   .openapi(controls, async (c) => {
     const { ctx, log } = read(c, "controls.list");
+    const rows = await complianceService.list(ctx);
     await log();
-    return c.json(plain(await complianceService.list(ctx)), 200);
+    return c.json(rows.map(toRoomControl), 200);
   })
   .openapi(control, async (c) => {
-    const p = c.req.param() as { framework: string; code: string };
+    const p = c.req.valid("param");
     const { ctx, log } = read(c, "controls.get", `${p.framework}:${p.code}`);
     const r = await complianceService.get(ctx, {
-      frameworkCode: p.framework as "DPDPA_2023",
+      frameworkCode: p.framework,
       controlCode: p.code,
     });
     await log();
-    return c.json(plain(r), 200);
+    return c.json(
+      {
+        control: toRoomControl(r.control),
+        evidence: r.evidence.map(toRoomEvidence),
+      },
+      200,
+    );
   })
   .openapi(policies, async (c) => {
     const { ctx, log } = read(c, "policies.list");
+    const rows = await policyDocumentsService.list(ctx);
     await log();
-    return c.json(plain(await policyDocumentsService.list(ctx)), 200);
+    return c.json(
+      rows.map((r) => ({
+        policyId: r.policy.id,
+        code: r.policy.code,
+        title: r.policy.title,
+        current: r.current
+          ? {
+              versionId: r.current.id,
+              version: r.current.version,
+              approvedAt: isoOrNull(r.current.approvedAt),
+            }
+          : null,
+      })),
+      200,
+    );
   })
   .openapi(policyVersion, async (c) => {
-    const p = c.req.param() as { policyId: string; versionId: string };
+    const p = c.req.valid("param");
     const { ctx, log } = read(c, "policies.version", p.versionId);
     const v = await policyDocumentsService.version(
       ctx,
@@ -499,48 +748,107 @@ export const auditorRoutes = createRouter()
       return c.json({ error: "Not found" }, 404);
     await log();
     return c.json(
-      plain({
+      {
         id: v.id,
         version: v.version,
         status: v.status,
-        approvedAt: v.approvedAt,
+        approvedAt: isoOrNull(v.approvedAt),
         body: v.body,
-      }),
+      },
       200,
     );
   })
   .openapi(risks, async (c) => {
     const { ctx, log } = read(c, "risks.list");
+    const rows = await risksService.list(ctx, {});
     await log();
-    return c.json(plain(await risksService.list(ctx, {})), 200);
+    return c.json(rows.map(toRoomRisk), 200);
   })
   .openapi(risk, async (c) => {
-    const id = (c.req.param() as { riskId: string }).riskId;
+    const id = c.req.valid("param").riskId;
     const { ctx, log } = read(c, "risks.get", id);
     const r = await risksService.get(ctx, id);
     await log();
-    return c.json(plain(r), 200);
+    return c.json(
+      {
+        risk: toRoomRisk(r.risk),
+        controls: r.controls.map((x) => ({
+          framework: x.framework,
+          controlCode: x.controlCode,
+          title: x.title,
+          status: x.status,
+        })),
+        tasks: r.tasks.map((t) => ({
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          dueDate: t.dueDate,
+        })),
+        history: r.events.map((e) => ({
+          kind: e.kind,
+          at: e.createdAt.toISOString(),
+        })),
+      },
+      200,
+    );
   })
   .openapi(auditLog, async (c) => {
     const { ctx, log } = read(c, "audit_log.list");
+    const page = await auditService.listForOrg(ctx, { limit: 200 });
     await log();
     return c.json(
-      plain(await auditService.listForOrg(ctx, { limit: 200 })),
+      page.items.map((e) => ({
+        seq: Number(e.seq),
+        occurredAt: e.occurredAt.toISOString(),
+        actorType: e.actorType,
+        action: e.action,
+        entityType: e.entityType,
+        entityId: e.entityId ?? null,
+        payload: (e.payload ?? {}) as Record<string, unknown>,
+        hash: e.hash,
+      })),
       200,
     );
   })
   .openapi(auditVerify, async (c) => {
     const { ctx, log } = read(c, "audit_log.verify");
+    const v = await auditService.verifyForOrg(ctx);
     await log();
-    return c.json(plain(await auditService.verifyForOrg(ctx)), 200);
+    return c.json(
+      {
+        valid: v.valid,
+        entries: v.entries,
+        brokenAtSeq: v.valid ? null : v.brokenAtSeq,
+      },
+      200,
+    );
   })
   .openapi(training, async (c) => {
     const { ctx, log } = read(c, "training.report");
+    const r = await trainingService.report(ctx);
     await log();
-    return c.json(plain(await trainingService.report(ctx)), 200);
+    return c.json(
+      r.courses.map((x) => ({
+        title: x.title,
+        completed: x.completed,
+        open: x.open,
+        overdue: x.overdue,
+      })),
+      200,
+    );
   })
   .openapi(accessReviews, async (c) => {
     const { ctx, log } = read(c, "access_reviews.list");
+    const rows = await accessReviewsService.list(ctx);
     await log();
-    return c.json(plain(await accessReviewsService.list(ctx)), 200);
+    return c.json(
+      rows.map((r) => ({
+        status: r.status,
+        dueDate: r.dueDate,
+        startedAt: r.startedAt.toISOString(),
+        completedAt: isoOrNull(r.completedAt),
+        summary: r.summary ?? null,
+      })),
+      200,
+    );
   });
