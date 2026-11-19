@@ -1,5 +1,11 @@
 /** Fixed per-organization roles; permissions live in domain/permissions.ts. */
-export const orgRoles = ["org_admin", "privacy_officer", "editor", "auditor", "viewer"] as const;
+export const orgRoles = [
+  "org_admin",
+  "privacy_officer",
+  "editor",
+  "auditor",
+  "viewer",
+] as const;
 export type OrgRole = (typeof orgRoles)[number];
 
 /** An authenticated platform user (customer staff or super admin). */
@@ -12,8 +18,10 @@ export type UserCaller = { userId: string; isSuperAdmin: boolean };
 export type OrgAccess = {
   orgId: string;
   role: OrgRole;
-  via: "membership" | "break_glass";
+  via: "membership" | "break_glass" | "auditor_room";
   breakGlassSessionId?: string;
+  /** Auditor room access (read-only, scoped): the grant used. */
+  auditorGrantId?: string;
 };
 
 /**
@@ -24,9 +32,19 @@ export type OrgAccess = {
  * - principals:erase  execute right-to-erasure requests (DPDPA s.12)
  * - rights:submit     file Data Principal rights requests for users the customer already authenticated
  */
-export const apiKeyScopes = ["scans:upload", "consents:read", "consents:write", "principals:erase", "rights:submit"] as const;
+export const apiKeyScopes = [
+  "scans:upload",
+  "consents:read",
+  "consents:write",
+  "principals:erase",
+  "rights:submit",
+] as const;
 export type ApiKeyScope = (typeof apiKeyScopes)[number];
-export type ApiKeyCaller = { keyId: string; orgId: string; scopes: ApiKeyScope[] };
+export type ApiKeyCaller = {
+  keyId: string;
+  orgId: string;
+  scopes: ApiKeyScope[];
+};
 
 /** Who performed an action, as recorded in the audit trail. */
 export type Actor = {
@@ -50,4 +68,8 @@ export type OrgContext = UserContext & { org: OrgAccess };
 export type TenantAccess =
   | { kind: "member"; userId: string; role: OrgRole }
   | { kind: "api_key"; keyId: string; scopes: ApiKeyScope[] };
-export type TenantContext = { orgId: string; actor: Actor; access: TenantAccess };
+export type TenantContext = {
+  orgId: string;
+  actor: Actor;
+  access: TenantAccess;
+};

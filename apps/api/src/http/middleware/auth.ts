@@ -1,3 +1,4 @@
+import type { AuditorCaller } from "../../domain/auditor-room.ts";
 import type { ApiKeyCaller, OrgAccess, UserCaller } from "../../domain/auth.ts";
 
 /**
@@ -7,5 +8,10 @@ import type { ApiKeyCaller, OrgAccess, UserCaller } from "../../domain/auth.ts";
  * - apiKey: org-scoped machine credential (authenticateApiKey in api-key-auth.ts)
  */
 export type AppEnv = {
-  Variables: { user: UserCaller; org: OrgAccess; apiKey: ApiKeyCaller };
+  Variables: {
+    user: UserCaller;
+    org: OrgAccess;
+    apiKey: ApiKeyCaller;
+    auditor: AuditorCaller;
+  };
 };
