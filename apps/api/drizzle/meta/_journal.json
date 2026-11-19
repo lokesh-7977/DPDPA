@@ -260,6 +260,20 @@
       "when": 1794999173698,
       "tag": "0036_policy_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1795069409545,
+      "tag": "0037_risk_register",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1795069413846,
+      "tag": "0038_risk_guards",
+      "breakpoints": true
     }
   ]
 }

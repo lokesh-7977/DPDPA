@@ -7,7 +7,7 @@ import { findings } from "../findings/index.ts";
 /** Phase 3c — who fixes what, by when. Tenant data. */
 export const taskStatus = pgEnum("remediation_status", ["todo", "in_progress", "done", "wont_do"]);
 export const taskPriority = pgEnum("remediation_priority", ["low", "medium", "high", "critical"]);
-export const taskSource = pgEnum("remediation_source", ["finding", "ropa_gap", "dpia", "ai_gap", "manual"]);
+export const taskSource = pgEnum("remediation_source", ["finding", "ropa_gap", "dpia", "ai_gap", "manual", "risk"]);
 
 export const remediationTasks = pgTable(
   "remediation_tasks",

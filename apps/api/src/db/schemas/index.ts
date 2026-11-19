@@ -17,6 +17,7 @@ export * from "./jobs/index.ts";
 export * from "./notices/index.ts";
 export * from "./policies/index.ts";
 export * from "./program/index.ts";
+export * from "./risks/index.ts";
 export * from "./remediation/index.ts";
 export * from "./rights/index.ts";
 export * from "./ropa/index.ts";
