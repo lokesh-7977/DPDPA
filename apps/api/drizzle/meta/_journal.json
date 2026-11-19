@@ -288,6 +288,20 @@
       "when": 1795070248560,
       "tag": "0040_workforce_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1795070935125,
+      "tag": "0041_trust_center",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1795070940685,
+      "tag": "0042_trust_guards",
+      "breakpoints": true
     }
   ]
 }

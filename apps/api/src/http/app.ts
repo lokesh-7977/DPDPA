@@ -41,6 +41,10 @@ import { policyDocumentsRoutes } from "./routes/policy-documents.routes.ts";
 import { risksRoutes } from "./routes/risks.routes.ts";
 import { workforceRoutes } from "./routes/workforce.routes.ts";
 import {
+  publicTrustCenterRoutes,
+  trustCenterRoutes,
+} from "./routes/trust-center.routes.ts";
+import {
   restrictedCountriesRoutes,
   transfersRoutes,
 } from "./routes/transfers.routes.ts";
@@ -131,9 +135,11 @@ const routes = base
   .route("/orgs", policyDocumentsRoutes)
   .route("/orgs", risksRoutes)
   .route("/orgs", workforceRoutes)
+  .route("/orgs", trustCenterRoutes)
   .route("/platform", restrictedCountriesRoutes)
   .route("/public", publicNoticesRoutes)
   .route("/public", publicRightsRoutes)
+  .route("/public", publicTrustCenterRoutes)
   .route("/integrations", rightsIntegrationRoutes)
   .route("/catalog", catalogRoutes)
   .route("/ci", ciRoutes);
