@@ -57,7 +57,11 @@ export const dataPrincipals = pgTable(
      * When the person last approached the fiduciary (used the service, consented, exercised a
      * right). Drives inactivity erasure (r.8(1)) and the one-year floor (r.8(3)).
      */
-    lastActiveAt: timestamp("last_active_at", { withTimezone: true })
+    /** Millisecond precision: the retention sweep pages by (last_active_at, id) with JS Dates. */
+    lastActiveAt: timestamp("last_active_at", {
+      withTimezone: true,
+      precision: 3,
+    })
       .notNull()
       .defaultNow(),
     /** Erasure scheduled by the retention sweep, after the r.8(2) notice. */

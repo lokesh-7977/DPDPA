@@ -1,0 +1,2 @@
+ALTER TABLE "data_principals" ALTER COLUMN "last_active_at" SET DATA TYPE timestamp (3) with time zone;--> statement-breakpoint
+ALTER TABLE "data_principals" ALTER COLUMN "last_active_at" SET DEFAULT now();

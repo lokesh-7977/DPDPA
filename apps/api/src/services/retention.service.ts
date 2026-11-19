@@ -1,7 +1,12 @@
 import { logger } from "../config/logger.ts";
 import { db, type DataPrincipal, type Tx } from "../db/index.ts";
 import type { Actor, OrgContext, TenantContext } from "../domain/auth.ts";
-import { conflict, notFound, unprocessable } from "../domain/errors.ts";
+import {
+  conflict,
+  DomainError,
+  notFound,
+  unprocessable,
+} from "../domain/errors.ts";
 import { utcDay, type Lease } from "../domain/jobs.ts";
 import { assertPermission, assertTenantAccess } from "../domain/permissions.ts";
 import {
@@ -117,6 +122,30 @@ export const retentionService = {
     let scheduled = 0;
     const noticeBefore = new Date(now.getTime() - NOTICE_HOURS * 3_600_000);
 
+    // 0. Scheduled erasures of people with an email whose notice is not recorded: (re)queue the
+    // notice, once a day per person. Covers a notice job that died and an email added later.
+    // Erasure stays blocked until the notice is recorded (step 1), so nobody is erased unnoticed.
+    const pending = await retentionRepository.pendingNotices(
+      db,
+      SWEEP_BATCH * 4,
+    );
+    let requeued = 0;
+    for (const p of pending) {
+      const job = await queueService.enqueue(
+        db,
+        "retention.notice",
+        p.orgId,
+        {
+          principalId: p.id,
+          scheduledFor: p.erasureScheduledFor!.toISOString(),
+        },
+        {
+          idempotencyKey: `retention.notice:${p.id}:${p.erasureScheduledFor!.toISOString()}:${utcDay(now)}`,
+        },
+      );
+      if (job.created) requeued++;
+    }
+
     // 1. Due schedules.
     for (;;) {
       if (!(await lease.renew()))
@@ -157,17 +186,38 @@ export const retentionService = {
             cancelled++;
             continue;
           }
-          const result = await eraseInTx(
-            tx,
-            { orgId: p.orgId, actor: WORKER },
-            p.id,
-          );
-          await audit(tx, WORKER, p.orgId, "retention.erased", p.id, {
-            reason: p.erasureReason,
-            scheduledFor: p.erasureScheduledFor?.toISOString() ?? null,
-            consentsWithdrawn: result.consentsWithdrawn,
-          });
-          erased++;
+          try {
+            const result = await tx.transaction((sp) =>
+              eraseInTx(sp, { orgId: p.orgId, actor: WORKER }, p.id),
+            );
+            await audit(tx, WORKER, p.orgId, "retention.erased", p.id, {
+              reason: p.erasureReason,
+              scheduledFor: p.erasureScheduledFor?.toISOString() ?? null,
+              consentsWithdrawn: result.consentsWithdrawn,
+            });
+            erased++;
+          } catch (e) {
+            if (!(e instanceof DomainError)) throw e;
+            // e.g. a ward was linked since the check: clear the schedule (re-evaluated next run).
+            await retentionRepository.update(tx, p.orgId, p.id, {
+              erasureScheduledFor: null,
+              erasureReason: null,
+              erasureNoticeSentAt: null,
+            });
+            await audit(
+              tx,
+              WORKER,
+              p.orgId,
+              "retention.erasure_cancelled",
+              p.id,
+              {
+                reason: p.erasureReason,
+                cause: "erasure_refused",
+                code: e.code,
+              },
+            );
+            cancelled++;
+          }
         }
         return due.length;
       });
@@ -191,6 +241,16 @@ export const retentionService = {
       );
       if (!page.length) break;
       const last = page[page.length - 1]!.principal;
+      if (
+        cursor &&
+        last.id === cursor.id &&
+        last.lastActiveAt.getTime() === cursor.lastActiveAt.getTime()
+      ) {
+        logger.error(
+          "Retention sweep cursor did not advance; stopping this run",
+        );
+        break;
+      }
       cursor = { lastActiveAt: last.lastActiveAt, id: last.id };
 
       const byOrg = new Map<string, typeof page>();
@@ -266,8 +326,11 @@ export const retentionService = {
       }
       if (page.length < SWEEP_BATCH) break;
     }
-    logger.info({ erased, cancelled, scheduled }, "Retention sweep done");
-    return { erased, cancelled, scheduled };
+    logger.info(
+      { erased, cancelled, scheduled, requeued },
+      "Retention sweep done",
+    );
+    return { erased, cancelled, scheduled, requeued };
   },
 
   /**
@@ -284,11 +347,15 @@ export const retentionService = {
       !x.erasureNoticeSentAt &&
       x.erasureScheduledFor?.getTime() === when.getTime();
     if (!current(p)) return { skipped: true };
+    // Erasure waits for notice + 48 h (r.8(2)): a late notice states that later date.
+    const earliest = new Date(
+      Math.max(when.getTime(), Date.now() + NOTICE_HOURS * 3_600_000),
+    );
     const org = await organizationsRepository.findById(db, orgId);
     await mailer.send({
       to: p!.email!,
-      subject: noticeSubject(org?.name ?? "We", when),
-      text: noticeText(org, p!.erasureReason, when),
+      subject: noticeSubject(org?.name ?? "We", earliest),
+      text: noticeText(org, p!.erasureReason, earliest),
     });
     return db.transaction(async (tx) => {
       const cur = await retentionRepository.find(tx, orgId, principalId);

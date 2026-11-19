@@ -22,8 +22,10 @@ const {
 
 /** Fake DNS / .well-known: which (host, method) pairs currently show the token. */
 const published = new Set<string>();
+let dnsDown = false;
 useDomainVerifier({
   async check(method, hostname) {
+    if (dnsDown) return { ok: false, detail: "dns_error" };
     return published.has(`${method}:${hostname}`)
       ? { ok: true, detail: "token_found" }
       : { ok: false, detail: "no_record" };
@@ -112,6 +114,12 @@ describe("rules (pure)", () => {
       "fec0::1", // site-local
       "fe80::1%eth0",
       "not-an-ip",
+      "::ffff:0:7f00:1", // IPv4-translated (SIIT) 127.0.0.1
+      "::ffff:0:127.0.0.1",
+      "64:ff9b::1:7f00:1", // NAT64 /32 outside the /96 shape
+      "3fff::1", // documentation (RFC 9637)
+      "5f00::1", // SRv6
+      "::8.8.8.8", // deprecated IPv4-compatible: never scanned
     ]) {
       assert.equal(isPrivateAddress(ip), true, ip);
     }
@@ -400,6 +408,20 @@ describe("domains and scan authorizations", () => {
       t.db.execute(sql`DELETE FROM scan_authorizations`),
       (e: Error & { cause?: Error }) =>
         /never deleted/.test(e.cause?.message ?? e.message),
+    );
+  });
+
+  test("a temporary DNS failure on the re-check does not lapse the domain", async () => {
+    dnsDown = true;
+    await runOnce({ now: new Date(Date.now() + 33 * DAY), batch: 50 });
+    dnsDown = false;
+    const r = (await t.call("GET", P(`/domains/${domainId}`), editorToken))
+      .body;
+    assert.equal(r.domain.status, "verified");
+    assert.equal(
+      r.checks[0].detail,
+      "dns_error",
+      "the failed attempt is still on record",
     );
   });
 
