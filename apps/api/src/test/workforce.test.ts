@@ -218,6 +218,15 @@ describe("training", () => {
     );
   });
 
+  test("a reminder is claimed before it is sent: never twice in a day", async () => {
+    const { trainingService } = await import("../services/training.service.ts");
+    const day = new Date(Date.now() + 9 * DAY);
+    const first = await trainingService.reminders(day);
+    const second = await trainingService.reminders(day);
+    assert.ok(first.sent > 0);
+    assert.equal(second.sent, 0);
+  });
+
   test("daily reminders: overdue people are emailed once a day", async () => {
     memoryOutbox.length = 0;
     const later = new Date(Date.now() + 12 * DAY);

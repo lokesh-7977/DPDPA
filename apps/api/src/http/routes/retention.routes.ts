@@ -51,6 +51,7 @@ const HoldSchema = z
   .openapi("RetentionHold");
 const PreviewQuery = z.object({
   days: z.coerce.number().int().min(1).max(365).default(30),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
 });
 const PreviewSchema = z
   .object({
@@ -141,16 +142,18 @@ export const retentionRoutes = createRouter()
       200,
     ),
   )
-  .openapi(previewRoute, async (c) =>
-    c.json(
-      (
-        await retentionService.preview(orgContext(c), c.req.valid("query").days)
-      ).map((i) => ({
+  .openapi(previewRoute, async (c) => {
+    const q = c.req.valid("query");
+    const r = await retentionService.preview(orgContext(c), q.days, q.limit);
+    // Partial list: more due than `limit`, or more idle people than one preview examines.
+    if (r.truncated) c.header("X-Preview-Truncated", "true");
+    return c.json(
+      r.items.map((i) => ({
         principal: toDataPrincipalDto(i.principal),
         reason: i.reason,
         dueAt: i.dueAt.toISOString(),
         scheduled: i.scheduled,
       })),
       200,
-    ),
-  );
+    );
+  });

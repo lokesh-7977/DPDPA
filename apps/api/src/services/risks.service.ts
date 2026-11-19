@@ -140,33 +140,32 @@ export const risksService = {
       ownerUserId?: string;
       level?: RiskLevel;
       reviewOverdue?: boolean;
+      limit?: number;
+      offset?: number;
     },
   ) {
     assertPermission(ctx, "data.read");
     const now = new Date();
-    return (await risksRepository.list(db, ctx.org.orgId, f))
-      .map((r) => view(r, now))
-      .filter(
-        (r) =>
-          (!f.level || r.residualLevel === f.level) &&
-          (f.reviewOverdue === undefined ||
-            r.reviewOverdue === f.reviewOverdue),
-      );
+    // Every filter runs in SQL, so offset paging returns full pages.
+    return (await risksRepository.list(db, ctx.org.orgId, f)).map((r) =>
+      view(r, now),
+    );
   },
 
   async get(ctx: OrgContext, id: string) {
     assertPermission(ctx, "data.read");
     const r = await risksRepository.find(db, ctx.org.orgId, id);
     if (!r) throw notFound("Risk not found");
-    const [links, tasks, events, controls] = await Promise.all([
+    const [links, tasks, events] = await Promise.all([
       risksRepository.controls(db, ctx.org.orgId, id),
       risksRepository.tasks(db, ctx.org.orgId, id),
       risksRepository.events(db, ctx.org.orgId, id),
-      complianceService.list(ctx),
     ]);
-    const status = new Map(
-      controls.map((c) => [`${c.framework}:${c.code}`, c]),
+    const linked = await complianceService.statusOf(
+      ctx,
+      links.map((l) => ({ framework: l.framework, code: l.controlCode })),
     );
+    const status = new Map(linked.map((c) => [`${c.framework}:${c.code}`, c]));
     return {
       risk: view(r),
       controls: links.map((l) => {

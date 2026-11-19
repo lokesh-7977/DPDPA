@@ -94,13 +94,40 @@ export const retentionRepository = {
   },
 
   /** Principals of one org not yet erased (preview). */
-  orgPrincipals(ex: Executor, orgId: string) {
+  /** Preview: every erasure already scheduled (a commitment, shown whatever the window), soonest first. */
+  previewScheduled(ex: Executor, orgId: string, limit: number) {
     return ex
       .select()
       .from(dataPrincipals)
       .where(
-        and(eq(dataPrincipals.orgId, orgId), isNull(dataPrincipals.erasedAt)),
-      );
+        and(
+          eq(dataPrincipals.orgId, orgId),
+          isNull(dataPrincipals.erasedAt),
+          isNotNull(dataPrincipals.erasureScheduledFor),
+        ),
+      )
+      .orderBy(asc(dataPrincipals.erasureScheduledFor), asc(dataPrincipals.id))
+      .limit(limit);
+  },
+
+  /**
+   * Preview: unscheduled principals last active before `activeBefore` (nothing is due within
+   * a year of activity, r.8(3)), longest idle first.
+   */
+  previewIdle(ex: Executor, orgId: string, activeBefore: Date, limit: number) {
+    return ex
+      .select()
+      .from(dataPrincipals)
+      .where(
+        and(
+          eq(dataPrincipals.orgId, orgId),
+          isNull(dataPrincipals.erasedAt),
+          isNull(dataPrincipals.erasureScheduledFor),
+          lte(dataPrincipals.lastActiveAt, activeBefore),
+        ),
+      )
+      .orderBy(asc(dataPrincipals.lastActiveAt), asc(dataPrincipals.id))
+      .limit(limit);
   },
 
   /** Each principal's consents with their purpose's retention period. */

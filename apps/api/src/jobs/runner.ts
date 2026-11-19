@@ -5,7 +5,7 @@ import { logger } from "../config/logger.ts";
 import type { Job } from "../db/index.ts";
 import { errorLabel, type Lease } from "../domain/jobs.ts";
 import { queueService } from "../services/queue.service.ts";
-import { handlers, isJobType } from "./handlers.ts";
+import { handlers, isJobType, onDead } from "./handlers.ts";
 
 export const newWorkerId = () =>
   `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
@@ -38,6 +38,11 @@ async function runJob(job: Job, workerId: string, now?: Date) {
           },
           now,
         );
+  if (!outcome.ok && outcome.dead && isJobType(job.type)) {
+    await onDead[job.type]?.(job).catch((e: unknown) =>
+      log.error({ error: errorLabel(e) }, "Dead-job clean-up failed"),
+    );
+  }
   if (outcome.ok) log.info("Job succeeded");
   // Error name only: messages can contain personal data.
   else

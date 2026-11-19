@@ -29,6 +29,7 @@ import {
   jsonBody,
 } from "../openapi.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
+import { PageQuery } from "../schemas/paging/index.ts";
 
 /** Phase 9f part 3 — auditor rooms. */
 const admin = {
@@ -103,7 +104,7 @@ const listRooms = createRoute({
   method: "get",
   path: "/{orgId}/auditor-rooms",
   summary: "Auditor rooms",
-  request: { params: OrgIdParam },
+  request: { params: OrgIdParam, query: PageQuery },
   responses: { 200: json(z.array(RoomSchema), "Rooms"), ...errors },
 });
 const createRoom = createRoute({
@@ -218,7 +219,12 @@ const revokeRoom = createRoute({
 
 export const orgAuditorRoomsRoutes = createRouter()
   .openapi(listRooms, async (c) =>
-    c.json((await auditorRoomsService.list(orgContext(c))).map(toRoomDto), 200),
+    c.json(
+      (await auditorRoomsService.list(orgContext(c), c.req.valid("query"))).map(
+        toRoomDto,
+      ),
+      200,
+    ),
   )
   .openapi(createRoom, async (c) =>
     c.json(
@@ -718,7 +724,10 @@ export const auditorRoutes = createRouter()
   })
   .openapi(policies, async (c) => {
     const { ctx, log } = read(c, "policies.list");
-    const rows = await policyDocumentsService.list(ctx);
+    const rows = await policyDocumentsService.list(ctx, {
+      limit: 10_000,
+      offset: 0,
+    });
     await log();
     return c.json(
       rows.map((r) => ({

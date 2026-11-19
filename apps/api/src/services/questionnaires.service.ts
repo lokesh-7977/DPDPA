@@ -92,9 +92,16 @@ type AnswerInput = {
 export const questionnairesService = {
   // ─── Library ───────────────────────────────────────────────────────────────
 
-  async listAnswers(ctx: OrgContext, status?: LibraryAnswer["status"]) {
+  async listAnswers(
+    ctx: OrgContext,
+    status?: LibraryAnswer["status"],
+    page: { limit: number; offset: number } = { limit: 100, offset: 0 },
+  ) {
     assertPermission(ctx, "data.read");
-    return questionnairesRepository.listAnswers(db, ctx.org.orgId, { status });
+    return questionnairesRepository.listAnswers(db, ctx.org.orgId, {
+      status,
+      ...page,
+    });
   },
 
   createAnswer(ctx: OrgContext, v: AnswerInput) {
@@ -218,9 +225,12 @@ export const questionnairesService = {
 
   // ─── Questionnaires ────────────────────────────────────────────────────────
 
-  async listQuestionnaires(ctx: OrgContext) {
+  async listQuestionnaires(
+    ctx: OrgContext,
+    page: { limit: number; offset: number } = { limit: 100, offset: 0 },
+  ) {
     assertPermission(ctx, "data.read");
-    return questionnairesRepository.listQuestionnaires(db, ctx.org.orgId);
+    return questionnairesRepository.listQuestionnaires(db, ctx.org.orgId, page);
   },
 
   async get(ctx: OrgContext, id: string) {

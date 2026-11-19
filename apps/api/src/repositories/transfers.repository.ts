@@ -70,13 +70,23 @@ export const transfersRepository = {
     return row!;
   },
 
-  list(ex: Executor, orgId: string) {
+  list(
+    ex: Executor,
+    orgId: string,
+    page: { limit: number; offset: number } = { limit: 10_000, offset: 0 },
+  ) {
     return ex
       .select({ transfer: transfers, recipientName: recipients.name })
       .from(transfers)
       .innerJoin(recipients, eq(transfers.recipientId, recipients.id))
       .where(eq(transfers.orgId, orgId))
-      .orderBy(desc(transfers.startedOn), desc(transfers.createdAt));
+      .orderBy(
+        desc(transfers.startedOn),
+        desc(transfers.createdAt),
+        desc(transfers.id),
+      )
+      .limit(page.limit)
+      .offset(page.offset);
   },
 
   /** The org's recipients located outside India (each should appear in the register). */

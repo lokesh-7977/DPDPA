@@ -15,6 +15,7 @@ import {
   jsonBody,
 } from "../openapi.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
+import { PageQuery } from "../schemas/paging/index.ts";
 import {
   AddRestrictionSchema,
   EndTransferSchema,
@@ -46,7 +47,7 @@ const listRoute = createRoute({
   path: "/{orgId}/transfers",
   summary:
     "Transfer register: personal data sent outside India, with restriction / SDF flags",
-  request: { params: OrgIdParam },
+  request: { params: OrgIdParam, query: PageQuery },
   responses: { 200: json(z.array(TransferSchema), "Transfers"), ...errors },
 });
 const unregisteredRoute = createRoute({
@@ -109,7 +110,9 @@ const endRoute = createRoute({
 export const transfersRoutes = createRouter()
   .openapi(listRoute, async (c) =>
     c.json(
-      (await transfersService.list(orgContext(c))).map(toTransferDto),
+      (await transfersService.list(orgContext(c), c.req.valid("query"))).map(
+        toTransferDto,
+      ),
       200,
     ),
   )

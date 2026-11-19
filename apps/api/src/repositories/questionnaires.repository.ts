@@ -29,7 +29,11 @@ export const questionnairesRepository = {
   listAnswers(
     ex: Executor,
     orgId: string,
-    f: { status?: LibraryAnswer["status"] } = {},
+    f: {
+      status?: LibraryAnswer["status"];
+      limit?: number;
+      offset?: number;
+    } = {},
   ) {
     const where = [eq(answerLibrary.orgId, orgId)];
     if (f.status) where.push(eq(answerLibrary.status, f.status));
@@ -37,7 +41,13 @@ export const questionnairesRepository = {
       .select()
       .from(answerLibrary)
       .where(and(...where))
-      .orderBy(asc(answerLibrary.topic), asc(answerLibrary.question));
+      .orderBy(
+        asc(answerLibrary.topic),
+        asc(answerLibrary.question),
+        asc(answerLibrary.id),
+      )
+      .limit(f.limit ?? 10_000)
+      .offset(f.offset ?? 0);
   },
 
   async standardKeys(ex: Executor, orgId: string) {
@@ -87,12 +97,18 @@ export const questionnairesRepository = {
     return row ?? null;
   },
 
-  listQuestionnaires(ex: Executor, orgId: string) {
+  listQuestionnaires(
+    ex: Executor,
+    orgId: string,
+    page: { limit: number; offset: number } = { limit: 10_000, offset: 0 },
+  ) {
     return ex
       .select()
       .from(questionnaires)
       .where(eq(questionnaires.orgId, orgId))
-      .orderBy(desc(questionnaires.createdAt));
+      .orderBy(desc(questionnaires.createdAt), desc(questionnaires.id))
+      .limit(page.limit)
+      .offset(page.offset);
   },
 
   async completeQuestionnaire(

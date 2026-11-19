@@ -17,6 +17,7 @@ import {
   jsonBody,
 } from "../openapi.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
+import { PageFields, PageQuery } from "../schemas/paging/index.ts";
 
 /** Phase 9f part 2 — answer library and questionnaire answering. */
 const base = {
@@ -147,7 +148,10 @@ const listAnswers = createRoute({
   summary: "Answer library",
   request: {
     params: OrgIdParam,
-    query: z.object({ status: z.enum(["draft", "approved"]).optional() }),
+    query: z.object({
+      status: z.enum(["draft", "approved"]).optional(),
+      ...PageFields,
+    }),
   },
   responses: { 200: json(z.array(AnswerSchema), "Answers"), ...errors },
 });
@@ -201,7 +205,7 @@ const listQ = createRoute({
   method: "get",
   path: "/{orgId}/questionnaires",
   summary: "Questionnaires",
-  request: { params: OrgIdParam },
+  request: { params: OrgIdParam, query: PageQuery },
   responses: {
     200: json(z.array(QuestionnaireSchema), "Questionnaires"),
     ...errors,
@@ -322,6 +326,10 @@ export const questionnairesRoutes = createRouter()
         await questionnairesService.listAnswers(
           orgContext(c),
           c.req.valid("query").status,
+          {
+            limit: c.req.valid("query").limit,
+            offset: c.req.valid("query").offset,
+          },
         )
       ).map(toAnswerDto),
       200,
@@ -369,9 +377,12 @@ export const questionnairesRoutes = createRouter()
   )
   .openapi(listQ, async (c) =>
     c.json(
-      (await questionnairesService.listQuestionnaires(orgContext(c))).map(
-        toQDto,
-      ),
+      (
+        await questionnairesService.listQuestionnaires(
+          orgContext(c),
+          c.req.valid("query"),
+        )
+      ).map(toQDto),
       200,
     ),
   )

@@ -37,6 +37,8 @@ const WORKER: Actor = { type: "system", id: "system:worker" };
 const DAY = 86_400_000;
 /** Principals handled per transaction / page in the daily sweep. */
 const SWEEP_BATCH = 500;
+/** Principals examined per preview (soonest first); the response is capped by `limit`. */
+const PREVIEW_SCAN_LIMIT = 5_000;
 
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const noticeSubject = (orgName: string, when: Date) =>
@@ -451,30 +453,42 @@ export const retentionService = {
   },
 
   /** Principals scheduled for erasure, or falling due within `days`, with reason and date. */
-  async preview(ctx: OrgContext, days: number) {
+  /**
+   * What will be erased within `days`: scheduled erasures (always first, from their own
+   * query, whatever the window), then unscheduled people who would fall due within it. `truncated` = the list is partial.
+   */
+  async preview(ctx: OrgContext, days: number, limit = 200) {
     assertPermission(ctx, "data.read");
     const now = new Date();
     const horizon = now.getTime() + days * DAY;
-    const [principals, org] = await Promise.all([
-      retentionRepository.orgPrincipals(db, ctx.org.orgId),
+    const activeBefore = new Date(horizon - MIN_RETENTION_DAYS * DAY);
+    const [scheduled, idle, org] = await Promise.all([
+      retentionRepository.previewScheduled(db, ctx.org.orgId, limit + 1),
+      retentionRepository.previewIdle(
+        db,
+        ctx.org.orgId,
+        activeBefore,
+        PREVIEW_SCAN_LIMIT,
+      ),
       organizationsRepository.findById(db, ctx.org.orgId),
     ]);
-    const ids = principals.map((p) => p.id);
+    const ids = idle.map((p) => p.id);
     const [consents, wards] = await Promise.all([
       retentionRepository.consentsFor(db, ctx.org.orgId, ids),
       retentionRepository.withActiveWards(db, ctx.org.orgId, ids),
     ]);
-    const out = [];
-    for (const p of principals) {
-      if (p.erasureScheduledFor) {
-        out.push({
-          principal: p,
-          reason: p.erasureReason,
-          dueAt: p.erasureScheduledFor,
-          scheduled: true,
-        });
-        continue;
-      }
+    const out: {
+      principal: DataPrincipal;
+      reason: string | null;
+      dueAt: Date;
+      scheduled: boolean;
+    }[] = scheduled.map((p) => ({
+      principal: p,
+      reason: p.erasureReason,
+      dueAt: p.erasureScheduledFor!,
+      scheduled: true,
+    }));
+    for (const p of idle) {
       const d = evaluate(
         p,
         consents.get(p.id) ?? [],
@@ -490,7 +504,11 @@ export const retentionService = {
           scheduled: false,
         });
     }
-    return out.sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime());
+    const sorted = out.sort((x, y) => x.dueAt.getTime() - y.dueAt.getTime());
+    return {
+      items: sorted.slice(0, limit),
+      truncated: sorted.length > limit || idle.length === PREVIEW_SCAN_LIMIT,
+    };
   },
 };
 

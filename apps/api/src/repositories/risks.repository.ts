@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, max } from "drizzle-orm";
+import { and, asc, desc, eq, max, sql } from "drizzle-orm";
 import {
   remediationTasks,
   riskControls,
@@ -44,17 +44,38 @@ export const risksRepository = {
       status?: Risk["status"];
       category?: Risk["category"];
       ownerUserId?: string;
+      /** Residual level (same thresholds as domain/dpia.ts riskLevel). */
+      level?: "low" | "medium" | "high" | "critical";
+      reviewOverdue?: boolean;
+      limit?: number;
+      offset?: number;
     },
   ) {
     const where = [eq(risks.orgId, orgId)];
     if (f.status) where.push(eq(risks.status, f.status));
     if (f.category) where.push(eq(risks.category, f.category));
     if (f.ownerUserId) where.push(eq(risks.ownerUserId, f.ownerUserId));
+    if (f.reviewOverdue !== undefined) {
+      const overdue = sql`(${risks.status} <> 'closed' AND coalesce(${risks.lastReviewedAt}, ${risks.createdAt}) + ${risks.reviewEveryDays} * interval '1 day' < now())`;
+      where.push(f.reviewOverdue ? overdue : sql`NOT ${overdue}`);
+    }
+    if (f.level) {
+      const score = sql`${risks.residualLikelihood} * ${risks.residualImpact}`;
+      const range = {
+        low: [1, 4],
+        medium: [5, 9],
+        high: [10, 19],
+        critical: [20, 25],
+      }[f.level];
+      where.push(sql`${score} BETWEEN ${range[0]} AND ${range[1]}`);
+    }
     return ex
       .select()
       .from(risks)
       .where(and(...where))
-      .orderBy(asc(risks.ref));
+      .orderBy(asc(risks.ref))
+      .limit(f.limit ?? 10_000)
+      .offset(f.offset ?? 0);
   },
 
   async update(ex: Executor, orgId: string, id: string, patch: Partial<Risk>) {

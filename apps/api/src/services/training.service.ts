@@ -7,7 +7,7 @@ import {
   notFound,
   unprocessable,
 } from "../domain/errors.ts";
-import { utcDay } from "../domain/jobs.ts";
+import { utcDay, type Lease } from "../domain/jobs.ts";
 import { assertPermission } from "../domain/permissions.ts";
 import {
   addDaysTo,
@@ -261,36 +261,50 @@ export const trainingService = {
   },
 
   /** Worker (daily): email people whose training is due within 7 days or overdue (once a day). */
-  async reminders(tx: Tx, now = new Date()) {
+  /**
+   * Worker (daily, detached): each reminder is claimed first (one conditional update marks it
+   * reminded today), then emailed outside any transaction. A retry never sends it twice; a failed
+   * send skips that person until tomorrow without stopping the others.
+   */
+  async reminders(now = new Date(), lease?: Lease) {
     const today = utcDay(now);
     const due = await workforceRepository.dueForReminder(
-      tx,
+      db,
       addDaysTo(today, REMIND_BEFORE_DAYS),
       today,
     );
     let sent = 0;
-    for (const r of due) {
+    let failed = 0;
+    for (const [n, r] of due.entries()) {
+      if (lease && n % 25 === 0 && !(await lease.renew())) break;
       if (!needsReminder(r.a, today)) continue;
+      if (!(await workforceRepository.markReminded(db, r.a.id, today)))
+        continue;
       const overdue = assignmentOverdue(r.a, today);
-      await mailer.send({
-        to: r.email,
-        subject: overdue
-          ? `Overdue training: ${r.title}`
-          : `Training due ${r.a.dueDate}: ${r.title}`,
-        text: [
-          `${r.orgName} has assigned you the training "${r.title}".`,
-          overdue
-            ? `It was due on ${r.a.dueDate}.`
-            : `Please complete it by ${r.a.dueDate}.`,
-          "Mark it complete in the platform when you have finished.",
-        ].join("\n\n"),
-      });
-      await workforceRepository.updateAssignment(tx, r.a.id, {
-        lastRemindedOn: today,
-      });
-      sent++;
+      try {
+        await mailer.send({
+          to: r.email,
+          subject: overdue
+            ? `Overdue training: ${r.title}`
+            : `Training due ${r.a.dueDate}: ${r.title}`,
+          text: [
+            `${r.orgName} has assigned you the training "${r.title}".`,
+            overdue
+              ? `It was due on ${r.a.dueDate}.`
+              : `Please complete it by ${r.a.dueDate}.`,
+            "Mark it complete in the platform when you have finished.",
+          ].join("\n\n"),
+        });
+        sent++;
+      } catch (e) {
+        failed++;
+        logger.warn(
+          { errName: (e as Error)?.name ?? "Error" },
+          "Training reminder not sent",
+        );
+      }
     }
-    logger.info({ sent }, "Training reminders done");
-    return { sent };
+    logger.info({ sent, failed }, "Training reminders done");
+    return { sent, failed };
   },
 };

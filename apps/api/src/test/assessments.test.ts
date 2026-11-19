@@ -188,6 +188,24 @@ describe("assessments", () => {
     assert.equal(ev.body.number, 1);
   });
 
+  test("a report job that gives up marks the assessment failed", async () => {
+    const { assessmentsService } =
+      await import("../services/assessments.service.ts");
+    const a = await t.call("POST", P("/assessments"), dpoToken);
+    await assessmentsService.markFailed(org.orgId, a.body.id);
+    const failed = (
+      await t.call("GET", P(`/assessments/${a.body.id}`), editorToken)
+    ).body;
+    assert.equal(failed.status, "failed");
+    await runOnce({ batch: 50 });
+    assert.equal(
+      (await t.call("GET", P(`/assessments/${a.body.id}`), editorToken)).body
+        .status,
+      "failed",
+      "the late job does nothing",
+    );
+  });
+
   test("assessments are frozen; numbering and trend", async () => {
     await assert.rejects(
       t.db.execute(sql`UPDATE assessments SET score = 100`),
@@ -203,7 +221,7 @@ describe("assessments", () => {
     const list = (await t.call("GET", P("/assessments"), editorToken)).body;
     assert.deepEqual(
       list.map((a: any) => a.number),
-      [2, 1],
+      [3, 2, 1],
     );
   });
 

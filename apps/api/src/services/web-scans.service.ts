@@ -227,6 +227,28 @@ export const webScansService = {
     return webScansRepository.pages(db, ctx.org.orgId, id, limit);
   },
 
+  /** Worker: the crawl job gave up after its retries; the scan is failed now, not 6 h later. */
+  failForDeadJob(orgId: string, scanId: string) {
+    return db.transaction(async (tx) => {
+      const row = await webScansRepository.update(
+        tx,
+        orgId,
+        scanId,
+        {
+          status: "failed",
+          stopReason: "The crawl job failed repeatedly",
+          finishedAt: new Date(),
+        },
+        ["queued", "running"],
+      );
+      if (row)
+        await audit(tx, WORKER, row, "web_scan.failed", {
+          reason: "job_dead",
+          pagesFetched: row.pagesFetched,
+        });
+    });
+  },
+
   /** Worker (daily): a scan with no progress for STALL_HOURS is failed (its job died or hung). */
   async failStalled(tx: Tx, now = new Date()) {
     const stalled = await webScansRepository.stalled(

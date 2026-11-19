@@ -121,7 +121,7 @@ export const jobsRepository = {
     now: Date,
   ) {
     const dead = job.attempts >= job.maxAttempts;
-    await ex
+    const owned = await ex
       .update(jobs)
       .set({
         status: dead ? "dead" : "queued",
@@ -131,8 +131,10 @@ export const jobsRepository = {
         leaseUntil: null,
         finishedAt: dead ? now : null,
       })
-      .where(and(eq(jobs.id, job.id), eq(jobs.lockedBy, workerId)));
-    return dead;
+      .where(and(eq(jobs.id, job.id), eq(jobs.lockedBy, workerId)))
+      .returning({ id: jobs.id });
+    // Lost the lease meanwhile: another worker owns the job, so it is not dead for us.
+    return dead && owned.length === 1;
   },
 
   async findForOrg(ex: Executor, orgId: string, id: string) {

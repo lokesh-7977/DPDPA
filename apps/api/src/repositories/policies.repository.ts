@@ -39,12 +39,18 @@ export const policiesRepository = {
     return row ?? null;
   },
 
-  list(ex: Executor, orgId: string) {
+  list(
+    ex: Executor,
+    orgId: string,
+    page: { limit: number; offset: number } = { limit: 10_000, offset: 0 },
+  ) {
     return ex
       .select()
       .from(policies)
       .where(eq(policies.orgId, orgId))
-      .orderBy(asc(policies.title));
+      .orderBy(asc(policies.title), asc(policies.id))
+      .limit(page.limit)
+      .offset(page.offset);
   },
 
   codes(ex: Executor, orgId: string) {
