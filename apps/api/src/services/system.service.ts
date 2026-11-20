@@ -2,6 +2,7 @@ import { utcDay } from "../domain/jobs.ts";
 import { logger } from "../config/logger.ts";
 import { db, type Tx } from "../db/index.ts";
 import { systemRepository } from "../repositories/system.repository.ts";
+import { githubService } from "./github.service.ts";
 import { webScansService } from "./web-scans.service.ts";
 
 /** Phase 18 — operations: readiness probe and daily housekeeping. */
@@ -28,9 +29,10 @@ export const systemService = {
       tx,
       utcDay(new Date(now.getTime() - 7 * 86_400_000)),
     );
+    const github = await githubService.purge(tx, now);
     const scans = await webScansService.failStalled(tx, now);
     logger.info(
-      { buckets, digestMarkers: markers, stalledScans: scans.failed },
+      { buckets, digestMarkers: markers, github, stalledScans: scans.failed },
       "System cleanup done",
     );
     return { buckets, stalledScans: scans.failed };

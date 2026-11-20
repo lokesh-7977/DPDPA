@@ -15,7 +15,12 @@ const repoColumns = {
 };
 
 export const assetsRepository = {
-  async findRepo(ex: Executor, orgId: string, provider: RepoProvider, fullName: string) {
+  async findRepo(
+    ex: Executor,
+    orgId: string,
+    provider: RepoProvider,
+    fullName: string,
+  ) {
     const [row] = await ex
       .select(repoColumns)
       .from(repoAssets)
@@ -41,7 +46,12 @@ export const assetsRepository = {
 
   async insertRepo(
     ex: Executor,
-    v: { orgId: string; provider: RepoProvider; fullName: string; defaultBranch: string },
+    v: {
+      orgId: string;
+      provider: RepoProvider;
+      fullName: string;
+      defaultBranch: string;
+    },
   ) {
     const [asset] = await ex
       .insert(assets)
@@ -54,7 +64,41 @@ export const assetsRepository = {
       fullName: v.fullName,
       defaultBranch: v.defaultBranch,
     });
-    return { ...asset!, provider: v.provider, fullName: v.fullName, defaultBranch: v.defaultBranch };
+    return {
+      ...asset!,
+      provider: v.provider,
+      fullName: v.fullName,
+      defaultBranch: v.defaultBranch,
+    };
+  },
+
+  /** A repository renamed at its host: the asset keeps its history under the new name. */
+  async renameRepo(
+    ex: Executor,
+    orgId: string,
+    assetId: string,
+    fullName: string,
+  ) {
+    await ex
+      .update(repoAssets)
+      .set({ fullName })
+      .where(and(eq(repoAssets.orgId, orgId), eq(repoAssets.assetId, assetId)));
+    await ex
+      .update(assets)
+      .set({ name: fullName })
+      .where(and(eq(assets.orgId, orgId), eq(assets.id, assetId)));
+  },
+
+  async setDefaultBranch(
+    ex: Executor,
+    orgId: string,
+    assetId: string,
+    defaultBranch: string,
+  ) {
+    await ex
+      .update(repoAssets)
+      .set({ defaultBranch })
+      .where(and(eq(repoAssets.orgId, orgId), eq(repoAssets.assetId, assetId)));
   },
 
   listRepos(ex: Executor, orgId: string) {

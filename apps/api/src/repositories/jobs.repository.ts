@@ -144,6 +144,7 @@ export const jobsRepository = {
     orgId: string,
     field: string,
     value: string,
+    statuses: ("queued" | "running")[] = ["queued", "running"],
   ) {
     const [row] = await ex
       .select({ id: jobs.id })
@@ -152,7 +153,7 @@ export const jobsRepository = {
         and(
           eq(jobs.type, type),
           eq(jobs.orgId, orgId),
-          inArray(jobs.status, ["queued", "running"]),
+          inArray(jobs.status, statuses),
           sql`${jobs.payload} ->> ${field} = ${value}`,
         ),
       )
