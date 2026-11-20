@@ -40,12 +40,43 @@ Also: `CORS_ORIGINS` (web app origins; in production required, comma-separated e
 
 1. Build: `pnpm install --frozen-lockfile && pnpm --filter api build`.
 2. Back up the database (below).
-3. Migrate: `pnpm --filter api db:migrate` (one run per deploy, before new instances take traffic). Migrations are forward-only; several add DB triggers that make records append-only or immutable.
+3. Migrate with the **owner** connection: `DATABASE_URL=<owner url> pnpm --filter api db:migrate` (one run per deploy, before new instances take traffic). Migrations are forward-only; several add DB triggers that make records append-only or immutable.
 4. Catalog: `pnpm --filter api seed:catalog` (idempotent; changed catalog content needs a version bump).
 5. Start / roll the API instances, then the worker(s).
 6. Check `/health/ready` on each instance and the worker logs ("Worker started").
 
 First install only: `pnpm --filter api create-super-admin <email> "<Name>"`.
+
+### Database roles and row-level security (Neon)
+
+Every org table has a `tenant_isolation` policy (migration 0053). The API switches to the
+`dpdpa_app` role in every transaction and sets the scope: requests for one organization see only
+its rows (org members, API keys, auditor rooms, MCP, public `/public/orgs/{slug}` pages and
+per-org jobs); auth, platform admin, token-based public links and cross-org daily jobs run in
+`system` scope (all orgs, still without DDL or TRUNCATE). The owner role bypasses RLS and is used only for migrations.
+
+Setup (once, as the Neon project owner, after the first migration created `dpdpa_app`):
+
+```sql
+CREATE ROLE dpdpa_api LOGIN PASSWORD '<generated>';
+GRANT dpdpa_app TO dpdpa_api;
+```
+
+- `DATABASE_URL` for the API and worker = the `dpdpa_api` login (not the owner).
+- Migrations: `DATABASE_URL=<owner url>`.
+- Create `dpdpa_api` with SQL as above, **not in the Neon Console** (Console roles join
+  `neon_superuser`, which can bypass RLS). In production the API and worker refuse to start if
+  their login is, or can switch to, a superuser / BYPASSRLS role, or owns the tables. If the login is not a member of `dpdpa_app`, every query fails and
+  `/health/ready` returns 503.
+- TO VERIFY on Neon: the project owner (`neon_superuser`) may `CREATE ROLE` in a migration.
+- Cost: a statement outside a transaction becomes a short transaction (BEGIN, then scope and
+  statement pipelined, then COMMIT: about two extra round trips).
+- `db.transaction(fn, { isolationLevel })` is not supported (the scope statement runs first).
+- Limits: RLS catches a missing org filter in code. It is **not** a defence against SQL injection
+  (injected SQL could change the scope setting); parameterised queries remain the defence.
+  Scoped to one org: org routes, API-key routes, public `/public/orgs/{slug}` routes and per-org
+  jobs. System scope: auth, platform admin, token-based public links, cross-org daily jobs.
+- New tables with `org_id` need RLS + policy in their migration (`rls.test.ts` fails otherwise).
 
 ### Index migrations on a populated database
 

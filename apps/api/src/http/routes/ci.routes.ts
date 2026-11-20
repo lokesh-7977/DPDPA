@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi";
 import { codeScansService } from "../../services/code-scans.service.ts";
 import { apiKeyContext } from "../context.ts";
 import { authenticateApiKey } from "../middleware/api-key-auth.ts";
+import { apiKeyOrgScope } from "../middleware/org-scope.ts";
 import { ciUploadLimit } from "../middleware/rate-limit.ts";
 import { bearer, createRouter, errors, ErrorSchema, json, jsonBody } from "../openapi.ts";
 import { SarifUploadResultSchema, SarifUploadSchema } from "../schemas/code-scans/index.ts";
@@ -17,7 +18,7 @@ const uploadSarifRoute = createRoute({
     "other branches return how many findings are new (fail your PR when `stats.newHighFindings > 0`). " +
     "The raw SARIF is not stored. Max body 10 MB.",
   security: bearer,
-  middleware: [authenticateApiKey, ciUploadLimit],
+  middleware: [authenticateApiKey, apiKeyOrgScope, ciUploadLimit],
   request: { body: jsonBody(SarifUploadSchema, "Scan upload") },
   responses: {
     200: json(SarifUploadResultSchema, "Ingested (or replayed)"),

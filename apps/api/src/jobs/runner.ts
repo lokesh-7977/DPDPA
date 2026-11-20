@@ -4,6 +4,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { logger } from "../config/logger.ts";
 import type { Job } from "../db/index.ts";
 import { errorLabel, type Lease } from "../domain/jobs.ts";
+import { dbScope } from "../services/db-scope.service.ts";
 import { queueService } from "../services/queue.service.ts";
 import { handlers, isJobType, onDead } from "./handlers.ts";
 
@@ -21,15 +22,18 @@ async function runJob(job: Job, workerId: string, now?: Date) {
   type Detached = {
     detached: (job: Job, lease: Lease) => Promise<Record<string, unknown>>;
   };
-  const outcome =
+  // Row-level security: a job for one organization only sees that organization's rows.
+  const scoped = <T>(fn: () => Promise<T>) =>
+    job.orgId ? dbScope.org(job.orgId, fn) : dbScope.system(fn);
+  const outcome = await scoped(() =>
     handler && typeof handler === "object"
-      ? await queueService.executeDetached(
+      ? queueService.executeDetached(
           job,
           workerId,
           (lease) => (handler as Detached).detached(job, lease),
           now,
         )
-      : await queueService.execute(
+      : queueService.execute(
           job,
           workerId,
           async (tx) => {
@@ -37,9 +41,11 @@ async function runJob(job: Job, workerId: string, now?: Date) {
             return (handler as Run)(tx, job);
           },
           now,
-        );
+        ),
+  );
   if (!outcome.ok && outcome.dead && isJobType(job.type)) {
-    await onDead[job.type]?.(job).catch((e: unknown) =>
+    const cleanUp = onDead[job.type];
+    await scoped(async () => cleanUp?.(job)).catch((e: unknown) =>
       log.error({ error: errorLabel(e) }, "Dead-job clean-up failed"),
     );
   }

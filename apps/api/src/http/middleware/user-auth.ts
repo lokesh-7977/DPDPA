@@ -10,6 +10,7 @@ import { organizationsService } from "../../services/organizations.service.ts";
 import { ACCESS_AUDIENCE } from "../../services/security.ts";
 import { orgContext } from "../context.ts";
 import type { AppEnv } from "./auth.ts";
+import { dbScope } from "../../services/db-scope.service.ts";
 
 /** Platform-user access token claims. Legacy consent tokens lack typ/aud and fail here. */
 const accessClaims = z.object({
@@ -67,7 +68,8 @@ export const optionalUser = createMiddleware<AppEnv>(async (c, next) => {
 
 /** Edge gate for /platform routes; services re-check with assertSuperAdmin. */
 export const requireSuperAdmin = createMiddleware<AppEnv>(async (c, next) => {
-  if (!c.var.user?.isSuperAdmin) throw new HTTPException(403, { message: "Forbidden" });
+  if (!c.var.user?.isSuperAdmin)
+    throw new HTTPException(403, { message: "Forbidden" });
   await next();
 });
 
@@ -86,5 +88,6 @@ export const orgAccess = createMiddleware<AppEnv>(async (c, next) => {
       route: c.req.routePath,
     });
   }
-  await next();
+  // Row-level security: the rest of the request sees only this organization's rows.
+  await dbScope.org(orgId, next);
 });

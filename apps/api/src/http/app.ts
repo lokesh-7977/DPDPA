@@ -58,10 +58,16 @@ import {
   transfersRoutes,
 } from "./routes/transfers.routes.ts";
 import { ropaRoutes } from "./routes/ropa.routes.ts";
+import { dbScope } from "../services/db-scope.service.ts";
+import { publicOrgScope } from "./middleware/org-scope.ts";
 
 const base = createRouter();
 
 // Request id (X-Request-Id) + structured pino access log (path only, never query/headers/body).
+// Row-level security: requests run as the app role across organizations until an org
+// middleware narrows them to one organization: orgAccess, tenantAccess, apiKeyOrgScope (CI,
+// integrations), authenticateAuditor, MCP, and publicOrgScope (public slug routes, below).
+base.use("*", (_c, next) => dbScope.system(next));
 base.use("*", requestId());
 base.use("*", requestLogger);
 base.use("*", secureHeaders());
@@ -75,6 +81,8 @@ base.use("*", async (c, next) => {
 
 // Unauthenticated endpoints: per-network limit on top of the route-specific ones.
 base.use("/public/*", publicReadLimit);
+// After the rate limit: the slug lookup is a database read on an unauthenticated route.
+base.use("/public/orgs/:slug/*", publicOrgScope);
 
 // Bearer tokens everywhere; only routes that read or set the httpOnly refresh
 // cookie allow credentialed CORS.
