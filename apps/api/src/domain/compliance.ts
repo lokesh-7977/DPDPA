@@ -92,9 +92,20 @@ export type OrgFacts = {
     toRestricted: number;
     unregisteredAbroad: number;
   };
+  /** Cloud / Workspace connectors (step 15); absent when none is connected. */
+  cloud?: {
+    connected: number;
+    criticalOrHigh: number;
+    /** Countries of data stores outside India with no active transfer in the register. */
+    uncoveredCountries: string[];
+    /** Active integrations without a successful sync in the last CLOUD_FRESH_DAYS. */
+    stale: number;
+  };
 };
 
 const SCAN_FRESH_DAYS = 30;
+/** Cloud inventory older than this can't support a pass. */
+export const CLOUD_FRESH_DAYS = 30;
 const pass = (reason: string): CheckResult => ({ result: "pass", reason });
 const fail = (reason: string): CheckResult => ({ result: "fail", reason });
 const nd = (reason: string): CheckResult => ({
@@ -136,8 +147,22 @@ export const automaticChecks: Record<string, (f: OrgFacts) => CheckResult> = {
       );
     return pass("Every processor has a contract reference");
   },
-  "DPDP-SEC-01": (f) =>
-    scanCheck(f, f.openFindings.highOrCritical, "high or critical severity"),
+  "DPDP-SEC-01": (f) => {
+    if (f.cloud?.criticalOrHigh)
+      return fail(
+        `${f.cloud.criticalOrHigh} open critical / high cloud or Workspace finding(s)`,
+      );
+    const code = scanCheck(
+      f,
+      f.openFindings.highOrCritical,
+      "high or critical severity",
+    );
+    if (code.result !== "fail" && f.cloud?.stale)
+      return nd(
+        `${f.cloud.stale} cloud / Workspace integration(s) not synced successfully in ${CLOUD_FRESH_DAYS} days`,
+      );
+    return code;
+  },
   "DPDP-SEC-02": (f) =>
     scanCheck(f, f.openFindings.inLogs, "personal data written to logs"),
   "DPDP-CONTACT-01": (f) =>
@@ -178,6 +203,14 @@ export const automaticChecks: Record<string, (f: OrgFacts) => CheckResult> = {
     if (t.unregisteredAbroad)
       return fail(
         `${t.unregisteredAbroad} recipient(s) outside India not in the transfer register`,
+      );
+    if (f.cloud?.uncoveredCountries.length)
+      return fail(
+        `Data stores outside India with no transfer in the register: ${f.cloud.uncoveredCountries.join(", ")}`,
+      );
+    if (f.cloud?.stale)
+      return nd(
+        `${f.cloud.stale} cloud / Workspace integration(s) not synced successfully in ${CLOUD_FRESH_DAYS} days`,
       );
     if (!t.active) return pass("No personal data transferred outside India");
     return pass(

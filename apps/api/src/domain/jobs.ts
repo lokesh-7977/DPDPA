@@ -17,6 +17,8 @@ export const jobTypes = [
   "assessment.render",
   "system.cleanup",
   "retention.notice",
+  "integration.sync",
+  "integrations.sync_all",
 ] as const;
 export type JobType = (typeof jobTypes)[number];
 

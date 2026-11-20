@@ -51,6 +51,8 @@ export async function transferFacts(ex: Executor, orgId: string, day: string) {
       isRestricted(t.country, restrictions.map(toRestriction), day),
     ).length,
     unregisteredAbroad: abroad.filter((r) => !covered.has(r.id)).length,
+    /** Destination countries of active transfers (cloud stores abroad must be covered). */
+    activeCountries: [...new Set(active.map((t) => t.country))],
   };
 }
 

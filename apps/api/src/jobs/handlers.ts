@@ -14,6 +14,7 @@ import { webScansService } from "../services/web-scans.service.ts";
 import { trainingService } from "../services/training.service.ts";
 import { assessmentsService } from "../services/assessments.service.ts";
 import { systemService } from "../services/system.service.ts";
+import { integrationsService } from "../services/integrations.service.ts";
 import { ropaService } from "../services/ropa.service.ts";
 
 /** One handler per job type. Return value is stored as the job's result (ids/counts only). */
@@ -147,6 +148,14 @@ export const handlers: { [T in JobType]: Handler<T> } = {
   // Phase 6: PDF report + evidence pack of a frozen assessment.
   "assessment.render": (tx, job) =>
     assessmentsService.render(tx, job.orgId!, job.payload.assessmentId),
+
+  // Step 15: read-only cloud / Workspace inventory (provider call outside any transaction).
+  "integration.sync": {
+    detached: (job, lease) =>
+      integrationsService.sync(job.orgId!, job.payload.integrationId, lease),
+  },
+  "integrations.sync_all": (tx, job) =>
+    integrationsService.syncAll(tx, job.payload.day),
 
   // Phase 18: daily housekeeping (expired rate-limit buckets, stalled web scans).
   "system.cleanup": (tx, job) =>

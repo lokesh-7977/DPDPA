@@ -41,6 +41,9 @@ import { auditService } from "./audit.service.ts";
 import { transferFacts } from "./transfers.service.ts";
 import { catalogService } from "./catalog.service.ts";
 import { mailer, type MailMessage } from "./mailer.ts";
+import { uncoveredCountries } from "../domain/cloud-inventory.ts";
+import { CLOUD_FRESH_DAYS } from "../domain/compliance.ts";
+import { integrationsRepository } from "../repositories/integrations.repository.ts";
 
 /**
  * Phase 9c — controls and evidence. Status is computed on read from current evidence and
@@ -60,9 +63,11 @@ const keyStr = (k: ControlKey) => `${k.frameworkCode}|${k.controlCode}`;
 async function facts(orgId: string, now: Date): Promise<OrgFacts> {
   const org = await organizationsRepository.findById(db, orgId);
   if (!org) throw notFound();
-  const [base, lastAnnual] = await Promise.all([
+  const [base, lastAnnual, transfers, cloud] = await Promise.all([
     complianceRepository.facts(db, orgId, now),
     dpiaRepository.lastApprovedAnnual(db, orgId),
+    transferFacts(db, orgId, utcDay(now)),
+    integrationsRepository.cloudFacts(db, orgId),
   ]);
   return {
     ...base,
@@ -70,7 +75,22 @@ async function facts(orgId: string, now: Date): Promise<OrgFacts> {
     isSdf: org.isSdf,
     contactPublished: !!(org.dpoEmail || org.grievanceEmail),
     sdfDpiaCurrent: !sdfDpiaStatus(org.isSdf, lastAnnual, now).overdue,
-    transfers: await transferFacts(db, orgId, utcDay(now)),
+    transfers,
+    cloud: cloud.connected
+      ? {
+          connected: cloud.connected,
+          criticalOrHigh: cloud.criticalOrHigh,
+          uncoveredCountries: uncoveredCountries(
+            cloud.storeCountries,
+            transfers.activeCountries,
+          ),
+          stale: cloud.lastSuccess.filter(
+            (at) =>
+              !at ||
+              now.getTime() - at.getTime() > CLOUD_FRESH_DAYS * 86_400_000,
+          ).length,
+        }
+      : undefined,
   };
 }
 

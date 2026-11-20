@@ -38,6 +38,7 @@ import { retentionRoutes } from "./routes/retention.routes.ts";
 import { domainsRoutes } from "./routes/domains.routes.ts";
 import { webScansRoutes } from "./routes/web-scans.routes.ts";
 import { scanCredentialsRoutes } from "./routes/scan-credentials.routes.ts";
+import { integrationsRoutes } from "./routes/integrations.routes.ts";
 import { programRoutes } from "./routes/program.routes.ts";
 import { policyDocumentsRoutes } from "./routes/policy-documents.routes.ts";
 import { risksRoutes } from "./routes/risks.routes.ts";
@@ -165,6 +166,7 @@ const routes = base
   .route("/orgs", domainsRoutes)
   .route("/orgs", webScansRoutes)
   .route("/orgs", scanCredentialsRoutes)
+  .route("/orgs", integrationsRoutes)
   .route("/orgs", programRoutes)
   .route("/orgs", policyDocumentsRoutes)
   .route("/orgs", risksRoutes)
