@@ -30,9 +30,22 @@ export type JobPayloads = {
   "assessment.render": { assessmentId: string };
   "system.cleanup": { day: string };
   "retention.notice": { principalId: string; scheduledFor: string };
+  "integration.sync": { integrationId: string };
+  "integrations.sync_all": { day: string };
 };
 
 export const queueService = {
+  /** True while a job of this type for the org, with payload[field] = value, is queued or running. */
+  hasOpen(
+    ex: Executor,
+    type: JobType,
+    orgId: string,
+    field: string,
+    value: string,
+  ) {
+    return jobsRepository.hasOpen(ex, type, orgId, field, value);
+  },
+
   /**
    * Enqueue inside the caller's transaction: the job exists only if the change that
    * asked for it commits. Same idempotency key → the existing job is returned.
@@ -156,6 +169,13 @@ export const queueService = {
         {
           idempotencyKey: `system.cleanup:${day}`,
         },
+      );
+      await queueService.enqueue(
+        tx,
+        "integrations.sync_all",
+        null,
+        { day },
+        { idempotencyKey: `integrations.sync_all:${day}` },
       );
     });
   },

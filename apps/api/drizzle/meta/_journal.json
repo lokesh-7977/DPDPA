@@ -379,6 +379,13 @@
       "when": 1795112824147,
       "tag": "0053_row_level_security",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1795162646770,
+      "tag": "0054_cloud_integrations",
+      "breakpoints": true
     }
   ]
 }

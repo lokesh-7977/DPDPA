@@ -137,6 +137,29 @@ export const jobsRepository = {
     return dead && owned.length === 1;
   },
 
+  /** A queued or running job of this type for the org whose payload has this field value. */
+  async hasOpen(
+    ex: Executor,
+    type: string,
+    orgId: string,
+    field: string,
+    value: string,
+  ) {
+    const [row] = await ex
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.type, type),
+          eq(jobs.orgId, orgId),
+          inArray(jobs.status, ["queued", "running"]),
+          sql`${jobs.payload} ->> ${field} = ${value}`,
+        ),
+      )
+      .limit(1);
+    return !!row;
+  },
+
   async findForOrg(ex: Executor, orgId: string, id: string) {
     const [row] = await ex
       .select()
