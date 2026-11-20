@@ -111,7 +111,7 @@ base.use("*", async (c, next) => {
   }
   await next();
 });
-// 64 KB everywhere, except SARIF uploads from CI and breach evidence files (10 MB).
+// 64 KB everywhere, except the large bodies listed in isUpload (10 MB, 120 s).
 const tooLarge = (
   c: Parameters<Parameters<typeof bodyLimit>[0]["onError"] & {}>[0],
 ) => c.json({ error: "Request body too large" }, 413);
@@ -125,6 +125,7 @@ const EVIDENCE_PATH =
 const isUpload = (path: string) =>
   path === "/ci/code-scans/sarif" ||
   path === "/webhooks/github" ||
+  /^\/orgs\/[^/]+\/questionnaires\/import-csv$/.test(path) ||
   EVIDENCE_PATH.test(path);
 base.use("*", (c, next) =>
   (isUpload(c.req.path) ? largeBodyLimit : defaultBodyLimit)(c, next),

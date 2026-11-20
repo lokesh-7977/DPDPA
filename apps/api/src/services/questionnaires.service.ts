@@ -14,6 +14,7 @@ import {
   suggestAnswers,
   type AnswerFacts,
   type AnswerTopic,
+  questionsFromCsv,
 } from "../domain/questionnaires.ts";
 import { organizationsRepository } from "../repositories/organizations.repository.ts";
 import { policiesRepository } from "../repositories/policies.repository.ts";
@@ -245,6 +246,28 @@ export const questionnairesService = {
       questionnaire: q,
       items: await questionnairesRepository.items(db, ctx.org.orgId, id),
     };
+  },
+
+  /** Import from a CSV export (Excel: "Save as CSV"); same rules as create. */
+  importCsv(
+    ctx: OrgContext,
+    v: {
+      name: string;
+      requester?: string | null;
+      dueDate?: string | null;
+      csv: string;
+      column?: string | number | null;
+    },
+  ) {
+    assertPermission(ctx, "data.write");
+    const parsed = questionsFromCsv(v.csv, v.column);
+    if ("problem" in parsed) throw unprocessable(parsed.problem);
+    return questionnairesService.create(ctx, {
+      name: v.name,
+      requester: v.requester,
+      dueDate: v.dueDate,
+      questions: parsed.questions,
+    });
   },
 
   /** Imports the questions and pre-fills each with the best approved library answer. */

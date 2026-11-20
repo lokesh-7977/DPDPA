@@ -224,7 +224,18 @@ export type SuggestionPayload =
       sensitivity: string;
     }
   | { type: "add_recipient"; name: string; sinkType: string }
-  | { type: "add_system"; name: string; assetId: string }
+  | {
+      type: "add_system";
+      name: string;
+      /** A code repository found by a scan. */
+      assetId?: string;
+      /** A data store found by a cloud connector (step 15). */
+      systemType?: "internal_app" | "database" | "saas";
+      hostingCountry?: string | null;
+      /** Where the suggestion came from when not a code scan. */
+      source?: "cloud";
+      integrationId?: string;
+    }
   /** AIGIS: an AI/LLM integration found in code that is not in the AI register yet. */
   | {
       type: "add_ai_system";
