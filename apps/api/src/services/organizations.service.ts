@@ -22,6 +22,11 @@ export type CreateOrganizationInput = {
 const BREAK_GLASS_MAX_MINUTES = 60;
 
 export const organizationsService = {
+  /** Public portals: the organization a slug names (null when unknown). */
+  async idBySlug(slug: string): Promise<string | null> {
+    return (await organizationsRepository.findBySlug(db, slug))?.id ?? null;
+  },
+
   /**
    * Who may act in this org, and how. Members act with their role (blocked while
    * the org is suspended). Super admins without membership only get in through an

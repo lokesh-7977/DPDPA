@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { authenticateApiKey } from "./api-key-auth.ts";
 import type { AppEnv } from "./auth.ts";
 import { authenticateUser, orgAccess } from "./user-auth.ts";
+import { dbScope } from "../../services/db-scope.service.ts";
 
 /**
  * For `/orgs/{orgId}/…` routes that customer systems may call too:
@@ -17,7 +18,7 @@ export const tenantAccess = createMiddleware<AppEnv>(async (c, next) => {
       if (c.var.apiKey.orgId !== c.req.param("orgId")) {
         throw new HTTPException(404, { message: "Organization not found" });
       }
-      await next();
+      await dbScope.org(c.var.apiKey.orgId, next);
     });
     return;
   }

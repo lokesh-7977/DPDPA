@@ -24,6 +24,7 @@ import type { AppEnv } from "../middleware/auth.ts";
 import { mcpLimit } from "../middleware/rate-limit.ts";
 import { logger } from "../../config/logger.ts";
 import { rateLimitStore } from "../../services/rate-limit-store.ts";
+import { dbScope } from "../../services/db-scope.service.ts";
 
 /** Tools that evaluate the whole compliance programme: a tighter per-key budget. */
 const HEAVY = new Set([
@@ -288,6 +289,8 @@ export const mcpRoutes = new Hono<AppEnv>()
     await next();
   })
   .use("*", mcpLimit)
+  // Row-level security: tools only ever see the key's organization.
+  .use("*", (c, next) => dbScope.org(c.var.apiKey.orgId, next))
   // No server-initiated stream: GET is not offered (transport spec allows 405).
   .get("/", (c) => c.body(null, 405, { Allow: "POST" }))
   .delete("/", (c) => c.body(null, 405, { Allow: "POST" }))

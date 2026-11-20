@@ -2,6 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { rightsService } from "../../services/rights.service.ts";
 import { anonymousActor, apiKeyContext, orgContext } from "../context.ts";
 import { authenticateApiKey } from "../middleware/api-key-auth.ts";
+import { apiKeyOrgScope } from "../middleware/org-scope.ts";
 import {
   rightsSubmitLimit,
   rightsVerifyLimit,
@@ -128,7 +129,7 @@ const apiSubmitRoute = createRoute({
   summary:
     "File a rights request for a user your system already authenticated (scope rights:submit)",
   security: bearer,
-  middleware: [authenticateApiKey],
+  middleware: [authenticateApiKey, apiKeyOrgScope],
   request: { body: jsonBody(RightsSubmissionSchema, "Request") },
   responses: {
     201: json(RightsRequestSchema, "Created (verified)"),

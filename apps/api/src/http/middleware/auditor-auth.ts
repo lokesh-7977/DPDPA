@@ -7,6 +7,7 @@ import type { RoomScope } from "../../domain/auditor-room.ts";
 import { auditorRoomsService } from "../../services/auditor-rooms.service.ts";
 import { AUDITOR_AUDIENCE } from "../../services/security.ts";
 import type { AppEnv } from "./auth.ts";
+import { dbScope } from "../../services/db-scope.service.ts";
 
 /** Auditor room session claims (a separate audience: platform logins never pass, nor the reverse). */
 const auditorClaims = z.object({
@@ -37,7 +38,7 @@ export const authenticateAuditor = createMiddleware<AppEnv>(async (c, next) => {
     : null;
   if (!auditor) throw unauthorized();
   c.set("auditor", auditor);
-  await next();
+  await dbScope.org(auditor.orgId, next);
 });
 
 /** The room must include this area (after authenticateAuditor). */
