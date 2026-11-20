@@ -39,6 +39,7 @@ import { domainsRoutes } from "./routes/domains.routes.ts";
 import { webScansRoutes } from "./routes/web-scans.routes.ts";
 import { scanCredentialsRoutes } from "./routes/scan-credentials.routes.ts";
 import { integrationsRoutes } from "./routes/integrations.routes.ts";
+import { githubPublicRoutes, githubRoutes } from "./routes/github.routes.ts";
 import { programRoutes } from "./routes/program.routes.ts";
 import { policyDocumentsRoutes } from "./routes/policy-documents.routes.ts";
 import { risksRoutes } from "./routes/risks.routes.ts";
@@ -88,7 +89,9 @@ base.use("/public/orgs/:slug/*", publicOrgScope);
 // Bearer tokens everywhere; only routes that read or set the httpOnly refresh
 // cookie allow credentialed CORS.
 const usesSessionCookie = (path: string) =>
-  path.startsWith("/auth/") || path === "/invitations/accept";
+  path.startsWith("/auth/") ||
+  path === "/invitations/accept" ||
+  /^\/orgs\/[^/]+\/github\/install-link$/.test(path);
 const apiCors = cors({ origin: env.CORS_ORIGINS });
 const cookieCors = cors({ origin: env.CORS_ORIGINS, credentials: true });
 base.use("*", (c, next) =>
@@ -120,7 +123,9 @@ const largeBodyLimit = bodyLimit({
 const EVIDENCE_PATH =
   /^\/orgs\/[^/]+\/(?:breaches\/[^/]+\/evidence|compliance\/controls\/[^/]+\/[^/]+\/evidence-files|vendor-contracts\/[^/]+\/file)$/;
 const isUpload = (path: string) =>
-  path === "/ci/code-scans/sarif" || EVIDENCE_PATH.test(path);
+  path === "/ci/code-scans/sarif" ||
+  path === "/webhooks/github" ||
+  EVIDENCE_PATH.test(path);
 base.use("*", (c, next) =>
   (isUpload(c.req.path) ? largeBodyLimit : defaultBodyLimit)(c, next),
 );
@@ -167,6 +172,7 @@ const routes = base
   .route("/orgs", webScansRoutes)
   .route("/orgs", scanCredentialsRoutes)
   .route("/orgs", integrationsRoutes)
+  .route("/orgs", githubRoutes)
   .route("/orgs", programRoutes)
   .route("/orgs", policyDocumentsRoutes)
   .route("/orgs", risksRoutes)
@@ -187,6 +193,8 @@ const routes = base
 // MCP (AI assistants) sits outside the typed chain: the web app never calls it, and its
 // JSON-RPC types must not leak into AppType. Guide: docs/integrations/mcp.md.
 routes.route("/mcp", mcpRoutes);
+// GitHub install redirect + signed webhooks (step 17); outside the typed chain too.
+routes.route("/", githubPublicRoutes);
 
 routes.doc31("/openapi.json", {
   openapi: "3.1.0",

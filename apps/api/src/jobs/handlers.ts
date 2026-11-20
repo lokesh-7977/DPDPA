@@ -15,6 +15,7 @@ import { trainingService } from "../services/training.service.ts";
 import { assessmentsService } from "../services/assessments.service.ts";
 import { systemService } from "../services/system.service.ts";
 import { integrationsService } from "../services/integrations.service.ts";
+import { githubService } from "../services/github.service.ts";
 import { ropaService } from "../services/ropa.service.ts";
 
 /** One handler per job type. Return value is stored as the job's result (ids/counts only). */
@@ -154,6 +155,11 @@ export const handlers: { [T in JobType]: Handler<T> } = {
     detached: (job, lease) =>
       integrationsService.sync(job.orgId!, job.payload.integrationId, lease),
   },
+  // Step 17: GitHub App scan (scanner outside any transaction, then the CI ingest).
+  "github.scan": {
+    detached: (job, lease) =>
+      githubService.runScan(job.orgId!, job.payload.repoRef, lease),
+  },
   "integrations.sync_all": (tx, job) =>
     integrationsService.syncAll(tx, job.payload.day),
 
@@ -170,6 +176,12 @@ export const handlers: { [T in JobType]: Handler<T> } = {
 /** Clean-up when a job used all its attempts (dead): leave no record stuck in progress. */
 export const onDead: Partial<Record<JobType, (job: Job) => Promise<unknown>>> =
   {
+    "github.scan": (job) =>
+      githubService.afterDeadScan(
+        job.orgId!,
+        (job.payload as { repoRef: string }).repoRef,
+        job.createdAt,
+      ),
     "web_scan.crawl": async (job) =>
       job.orgId &&
       webScansService.failForDeadJob(

@@ -21,12 +21,21 @@ export const errorHandler: ErrorHandler = (err, c) => {
   if (err instanceof HTTPException) {
     return c.json({ error: err.message || "Error" }, err.status);
   }
+  // A connector this platform hasn't configured yet (GitHub App, cloud inventory).
+  if (
+    err.name === "GithubUnavailable" ||
+    err.name === "IntegrationUnavailable"
+  ) {
+    return c.json({ error: "This integration is not available yet" }, 503);
+  }
   // Drizzle wraps driver errors; the Postgres SQLSTATE lives on the cause.
   const pgCode =
     (err as { cause?: { code?: string } }).cause?.code ??
     (err as { code?: string }).code;
-  if (pgCode === "23505") return c.json({ error: "Conflict: already exists" }, 409);
-  if (pgCode === "23503") return c.json({ error: "Referenced record not found" }, 422);
+  if (pgCode === "23505")
+    return c.json({ error: "Conflict: already exists" }, 409);
+  if (pgCode === "23503")
+    return c.json({ error: "Referenced record not found" }, 422);
   if (pgCode === "23514") return c.json({ error: "Constraint violated" }, 422);
 
   // Never log err.message / err.stack of DB errors: DrizzleQueryError embeds

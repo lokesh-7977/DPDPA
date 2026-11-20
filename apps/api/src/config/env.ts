@@ -77,6 +77,17 @@ const schema = z.object({
    */
   STORAGE_DRIVER: z.enum(["fs", "memory"]).default("fs"),
   STORAGE_DIR: z.string().default(".storage"),
+  /**
+   * GitHub App for managed HoundDog scans (step 17). Off unless slug + webhook secret are set.
+   * App ID / private key are for the real GitHub client (not yet implemented).
+   */
+  GITHUB_APP_SLUG: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]{0,38}$/)
+    .optional(),
+  GITHUB_WEBHOOK_SECRET: z.string().min(32).optional(),
+  GITHUB_APP_ID: z.coerce.number().int().positive().optional(),
+  GITHUB_APP_PRIVATE_KEY: z.string().min(100).optional(),
   /** Worker: how often an idle worker polls the job queue. */
   WORKER_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(2000),
   /** Worker: jobs claimed per poll. */

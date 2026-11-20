@@ -19,6 +19,7 @@ export const jobTypes = [
   "retention.notice",
   "integration.sync",
   "integrations.sync_all",
+  "github.scan",
 ] as const;
 export type JobType = (typeof jobTypes)[number];
 

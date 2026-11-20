@@ -120,6 +120,14 @@ export const mcpLimit = rateLimit({
 });
 
 /** Every public (unauthenticated) read: per network. */
+/** GitHub webhooks: generous (GitHub delivers in bursts), but bounded per network. */
+export const githubWebhookLimit = rateLimit({
+  name: "github-webhook",
+  max: 600,
+  windowMs: 60_000,
+  key: byNetwork,
+});
+
 export const publicReadLimit = rateLimit({
   name: "public-read",
   max: 120,

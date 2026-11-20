@@ -386,6 +386,13 @@
       "when": 1795162646770,
       "tag": "0054_cloud_integrations",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1795167041801,
+      "tag": "0055_github_app",
+      "breakpoints": true
     }
   ]
 }

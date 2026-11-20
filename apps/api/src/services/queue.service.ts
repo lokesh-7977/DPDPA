@@ -32,6 +32,7 @@ export type JobPayloads = {
   "retention.notice": { principalId: string; scheduledFor: string };
   "integration.sync": { integrationId: string };
   "integrations.sync_all": { day: string };
+  "github.scan": { repoRef: string };
 };
 
 export const queueService = {
@@ -42,8 +43,9 @@ export const queueService = {
     orgId: string,
     field: string,
     value: string,
+    statuses?: ("queued" | "running")[],
   ) {
-    return jobsRepository.hasOpen(ex, type, orgId, field, value);
+    return jobsRepository.hasOpen(ex, type, orgId, field, value, statuses);
   },
 
   /**
