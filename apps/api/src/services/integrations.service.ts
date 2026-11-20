@@ -27,6 +27,7 @@ import {
   VAULT_KEY_VERSION,
 } from "./credential-vault.ts";
 import { queueService } from "./queue.service.ts";
+import { ropaService } from "./ropa.service.ts";
 
 /**
  * Step 15 — read-only AWS / Google Workspace connectors. The org_admin connects and revokes;
@@ -319,10 +320,23 @@ export const integrationsService = {
         lastSyncAt: now,
         lastSyncStatus: "succeeded",
       });
+      // New data stores become ROPA system suggestions (the DPO decides).
+      const suggested = await ropaService.suggestCloudStores(
+        tx,
+        orgId,
+        id,
+        results.resources.map((r) => ({
+          kind: r.kind,
+          name: r.name,
+          region: r.region,
+          country: regionCountry(r.region),
+        })),
+      );
       // Counts only: resource names stay out of the audit trail.
       await audit(tx, WORKER, i, "integration.synced", {
         resources: results.resources.length,
         findings: results.findings.length,
+        suggested,
       });
       return {
         ok: true,

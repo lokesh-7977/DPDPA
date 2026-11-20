@@ -4,9 +4,14 @@ import type {
   Questionnaire,
   QuestionnaireItem,
 } from "../../db/schemas/index.ts";
-import { answerTopics, MAX_QUESTIONS } from "../../domain/questionnaires.ts";
+import {
+  answerTopics,
+  MAX_CSV_CHARS,
+  MAX_QUESTIONS,
+} from "../../domain/questionnaires.ts";
 import { questionnairesService } from "../../services/questionnaires.service.ts";
 import { orgContext } from "../context.ts";
+import { uploadLimit } from "../middleware/rate-limit.ts";
 import { authenticateUser, orgAccess } from "../middleware/user-auth.ts";
 import {
   bearer,
@@ -242,6 +247,46 @@ const createQ = createRoute({
     ...errors,
   },
 });
+const importCsvQ = createRoute({
+  ...base,
+  method: "post",
+  path: "/{orgId}/questionnaires/import-csv",
+  middleware: [...base.middleware, uploadLimit],
+  summary:
+    'Import a questionnaire from CSV ("question" column, or the first column); answers pre-filled from the library',
+  request: {
+    params: OrgIdParam,
+    body: jsonBody(
+      z.object({
+        name: Plain(200),
+        requester: Plain(200).nullable().optional(),
+        dueDate: z.iso.date().nullable().optional(),
+        csv: z.string().min(1).max(MAX_CSV_CHARS),
+        /** The question column: its header name, or its number (1 = first). Optional. */
+        column: z
+          .union([
+            z.string().trim().min(1).max(200),
+            z.number().int().min(1).max(200),
+          ])
+          .nullable()
+          .optional(),
+      }),
+      "CSV text",
+    ),
+  },
+  responses: {
+    201: json(
+      z.object({
+        questionnaire: QuestionnaireSchema,
+        matched: z.number().int(),
+        total: z.number().int(),
+      }),
+      "Imported",
+    ),
+    422: unprocessable,
+    ...errors,
+  },
+});
 const getQ = createRoute({
   ...base,
   method: "get",
@@ -386,6 +431,20 @@ export const questionnairesRoutes = createRouter()
       200,
     ),
   )
+  .openapi(importCsvQ, async (c) => {
+    const r = await questionnairesService.importCsv(
+      orgContext(c),
+      c.req.valid("json"),
+    );
+    return c.json(
+      {
+        questionnaire: toQDto(r.questionnaire),
+        matched: r.matched,
+        total: r.total,
+      },
+      201,
+    );
+  })
   .openapi(createQ, async (c) => {
     const r = await questionnairesService.create(
       orgContext(c),

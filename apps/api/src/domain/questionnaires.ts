@@ -266,3 +266,142 @@ export function bestMatch<T extends { question: string; keywords: string[] }>(
     ? { entry: best.entry, score: Math.round(best.score * 100) / 100 }
     : null;
 }
+
+/** Largest CSV accepted for a questionnaire import (characters): 500 × 2,000 plus other columns. */
+export const MAX_CSV_CHARS = 1_000_000;
+/** Longest cell kept while parsing (question cells are capped at 2,000 later). */
+export const MAX_CSV_FIELD = 8_000;
+/** Rows searched for a header naming the question column. */
+const HEADER_SEARCH_ROWS = 3;
+
+/** A CSV over a limit or malformed: parsing stops at once (no unbounded work on hostile input). */
+export class CsvLimitError extends Error {
+  override name = "CsvLimitError";
+}
+
+/**
+ * RFC 4180 rows: quoted fields with commas, quotes ("") and line breaks; CRLF, LF or CR; a
+ * leading BOM is ignored. Blank rows are skipped as they are read. Throws CsvLimitError when a
+ * cell exceeds `maxField`, more than `maxRows` non-blank rows are found, or a quote is never
+ * closed.
+ */
+export function parseCsv(
+  text: string,
+  limits: { maxField?: number; maxRows?: number } = {},
+): string[][] {
+  const maxField = limits.maxField ?? MAX_CSV_FIELD;
+  const maxRows = limits.maxRows ?? Number.POSITIVE_INFINITY;
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  const s = text.startsWith("﻿") ? text.slice(1) : text;
+  const push = (c: string) => {
+    field += c;
+    if (field.length > maxField)
+      throw new CsvLimitError(`A cell is longer than ${maxField} characters`);
+  };
+  const endRow = () => {
+    row.push(field);
+    if (row.some((c) => c.trim())) {
+      rows.push(row);
+      if (rows.length > maxRows)
+        throw new CsvLimitError(`More than ${maxRows} rows`);
+    }
+    row = [];
+    field = "";
+  };
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!;
+    if (quoted) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') {
+          push('"');
+          i++;
+        } else quoted = false;
+      } else push(ch);
+    } else if (ch === '"' && field === "") quoted = true;
+    else if (ch === ",") {
+      row.push(field);
+      field = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && s[i + 1] === "\n") i++;
+      endRow();
+    } else push(ch);
+  }
+  if (quoted) throw new CsvLimitError("Unterminated quoted field");
+  if (field !== "" || row.length) endRow();
+  return rows;
+}
+
+/**
+ * Questions from a CSV export of a customer questionnaire. The question column is, in order:
+ * the `column` given (header name or 1-based number), else a header cell containing "question"
+ * in the first rows (rows above it are titles and are skipped), else the first column of every
+ * row. Blank cells are skipped; at most MAX_QUESTIONS, each at most 2,000 characters. Limits
+ * are enforced while parsing.
+ */
+export function questionsFromCsv(
+  text: string,
+  column?: string | number | null,
+): { questions: string[] } | { problem: string } {
+  if (text.length > MAX_CSV_CHARS) return { problem: "CSV too large" };
+  let rows: string[][];
+  try {
+    // A few title / header rows plus at most MAX_QUESTIONS rows.
+    rows = parseCsv(text, { maxRows: MAX_QUESTIONS + HEADER_SEARCH_ROWS });
+  } catch (e) {
+    if (e instanceof CsvLimitError)
+      return {
+        problem: /rows/.test(e.message)
+          ? `At most ${MAX_QUESTIONS} questions per questionnaire`
+          : e.message,
+      };
+    throw e;
+  }
+  if (!rows.length) return { problem: "The CSV has no rows" };
+
+  let col = 0;
+  let start = 0;
+  if (typeof column === "number") {
+    col = column - 1;
+    if (col < 0) return { problem: "column must be 1 or more" };
+  } else if (typeof column === "string" && column.trim()) {
+    const wanted = column.trim().toLowerCase();
+    const at = rows
+      .slice(0, HEADER_SEARCH_ROWS)
+      .findIndex((r) => r.some((c) => c.trim().toLowerCase() === wanted));
+    if (at < 0)
+      return {
+        problem: `No column named "${column.trim()}" in the first rows`,
+      };
+    col = rows[at]!.findIndex((c) => c.trim().toLowerCase() === wanted);
+    start = at + 1;
+  } else {
+    const at = rows
+      .slice(0, HEADER_SEARCH_ROWS)
+      .findIndex((r) => r.some((c) => c.toLowerCase().includes("question")));
+    if (at >= 0) {
+      col = rows[at]!.findIndex((c) => c.toLowerCase().includes("question"));
+      start = at + 1;
+    }
+  }
+  const questions = rows
+    .slice(start)
+    .map((r) => (r[col] ?? "").trim())
+    .filter(Boolean);
+  if (!questions.length) {
+    const found = rows[0]!
+      .map((c) => c.trim())
+      .filter(Boolean)
+      .slice(0, 10);
+    return {
+      problem: `No questions found; columns seen: ${found.join(", ") || "none"} (set "column")`,
+    };
+  }
+  if (questions.length > MAX_QUESTIONS)
+    return { problem: `At most ${MAX_QUESTIONS} questions per questionnaire` };
+  if (questions.some((x) => x.length > 2000))
+    return { problem: "A question is longer than 2,000 characters" };
+  return { questions };
+}

@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { PageFields } from "../paging/index.ts";
 import type {
   DataCategory,
   ProcessingActivity,
@@ -29,12 +30,21 @@ const Code = z
   .string()
   .regex(/^[a-z0-9][a-z0-9_.-]{0,63}$/, "lowercase letters, digits, _ . -")
   .openapi({ example: "customer_onboarding" });
-const Country = z.string().regex(/^[A-Z]{2}$/, "ISO 3166-1 alpha-2, e.g. IN, US").openapi({ example: "IN" });
+const Country = z
+  .string()
+  .regex(/^[A-Z]{2}$/, "ISO 3166-1 alpha-2, e.g. IN, US")
+  .openapi({ example: "IN" });
 const Ids = z.array(z.uuid()).max(200);
 
-export const SensitivitySchema = z.enum(dataSensitivities).openapi("DataSensitivity");
-export const RecipientRoleSchema = z.enum(recipientRoles).openapi("RecipientRole");
-export const ActivityStatusSchema = z.enum(activityStatuses).openapi("ActivityStatus");
+export const SensitivitySchema = z
+  .enum(dataSensitivities)
+  .openapi("DataSensitivity");
+export const RecipientRoleSchema = z
+  .enum(recipientRoles)
+  .openapi("RecipientRole");
+export const ActivityStatusSchema = z
+  .enum(activityStatuses)
+  .openapi("ActivityStatus");
 
 // ─── Inventory ───────────────────────────────────────────────────────────────
 
@@ -42,11 +52,21 @@ export const CreateDataCategorySchema = z
   .object({ code: Code, name: Text(200), sensitivity: SensitivitySchema })
   .openapi("CreateDataCategory");
 export const DataCategorySchema = z
-  .object({ id: z.uuid(), code: z.string(), name: z.string(), sensitivity: SensitivitySchema })
+  .object({
+    id: z.uuid(),
+    code: z.string(),
+    name: z.string(),
+    sensitivity: SensitivitySchema,
+  })
   .openapi("DataCategory");
 
 export const CreateRecipientSchema = z
-  .object({ name: Text(200), role: RecipientRoleSchema, country: Country, contractRef: Text(200).optional() })
+  .object({
+    name: Text(200),
+    role: RecipientRoleSchema,
+    country: Country,
+    contractRef: Text(200).optional(),
+  })
   .openapi("CreateRecipient");
 export const RecipientSchema = z
   .object({
@@ -59,7 +79,11 @@ export const RecipientSchema = z
   .openapi("Recipient");
 
 export const CreateSystemSchema = z
-  .object({ name: Text(200), type: z.enum(systemTypes), hostingCountry: Country.optional() })
+  .object({
+    name: Text(200),
+    type: z.enum(systemTypes),
+    hostingCountry: Country.optional(),
+  })
   .openapi("CreateSystem");
 export const SystemSchema = z
   .object({
@@ -133,11 +157,31 @@ export const GapSchema = z
 export const ActivityDetailSchema = z
   .object({
     activity: ActivitySchema,
-    dataCategories: z.array(z.object({ id: z.uuid(), code: z.string(), name: z.string(), sensitivity: SensitivitySchema })),
-    recipients: z.array(
-      z.object({ id: z.uuid(), name: z.string(), role: RecipientRoleSchema, country: z.string(), contractRef: z.string().nullable() }),
+    dataCategories: z.array(
+      z.object({
+        id: z.uuid(),
+        code: z.string(),
+        name: z.string(),
+        sensitivity: SensitivitySchema,
+      }),
     ),
-    systems: z.array(z.object({ id: z.uuid(), name: z.string(), type: z.string(), hostingCountry: z.string().nullable() })),
+    recipients: z.array(
+      z.object({
+        id: z.uuid(),
+        name: z.string(),
+        role: RecipientRoleSchema,
+        country: z.string(),
+        contractRef: z.string().nullable(),
+      }),
+    ),
+    systems: z.array(
+      z.object({
+        id: z.uuid(),
+        name: z.string(),
+        type: z.string(),
+        hostingCountry: z.string().nullable(),
+      }),
+    ),
     gaps: z.array(GapSchema),
   })
   .openapi("ProcessingActivityDetail");
@@ -160,16 +204,27 @@ export const SubmittedSchema = z
   .object({ version: VersionSchema, gaps: z.array(GapSchema) })
   .openapi("SubmittedActivity");
 
-export const DecisionNoteSchema = z.object({ note: z.string().trim().max(1000).optional() }).openapi("DecisionNote");
-export const RejectionSchema = z.object({ note: z.string().trim().min(1).max(1000) }).openapi("Rejection");
-export const ListActivitiesQuery = z.object({ status: ActivityStatusSchema.optional() });
+export const DecisionNoteSchema = z
+  .object({ note: z.string().trim().max(1000).optional() })
+  .openapi("DecisionNote");
+export const RejectionSchema = z
+  .object({ note: z.string().trim().min(1).max(1000) })
+  .openapi("Rejection");
+export const ListActivitiesQuery = z.object({
+  status: ActivityStatusSchema.optional(),
+});
 
 // ─── Suggestions ─────────────────────────────────────────────────────────────
 
 export const SuggestionSchema = z
   .object({
     id: z.uuid(),
-    type: z.enum(["add_data_category", "add_recipient", "add_system", "add_ai_system"]),
+    type: z.enum([
+      "add_data_category",
+      "add_recipient",
+      "add_system",
+      "add_ai_system",
+    ]),
     payload: z.record(z.string(), z.unknown()),
     status: z.enum(["pending", "accepted", "rejected"]),
     assetId: z.uuid().nullable(),
@@ -178,7 +233,10 @@ export const SuggestionSchema = z
   })
   .openapi("RopaSuggestion");
 
-export const ListSuggestionsQuery = z.object({ status: z.enum(["pending", "accepted", "rejected"]).optional() });
+export const ListSuggestionsQuery = z.object({
+  status: z.enum(["pending", "accepted", "rejected"]).optional(),
+  ...PageFields,
+});
 
 export const AcceptSuggestionSchema = z
   .object({
@@ -201,12 +259,19 @@ export const ActivityParams = z.object({
 });
 export const SuggestionParams = z.object({
   orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  suggestionId: z.uuid().openapi({ param: { name: "suggestionId", in: "path" } }),
+  suggestionId: z
+    .uuid()
+    .openapi({ param: { name: "suggestionId", in: "path" } }),
 });
 
 // ─── Mappers ─────────────────────────────────────────────────────────────────
 
-export const toDataCategoryDto = (c: DataCategory) => ({ id: c.id, code: c.code, name: c.name, sensitivity: c.sensitivity });
+export const toDataCategoryDto = (c: DataCategory) => ({
+  id: c.id,
+  code: c.code,
+  name: c.name,
+  sensitivity: c.sensitivity,
+});
 export const toRecipientDto = (r: Recipient) => ({
   id: r.id,
   name: r.name,

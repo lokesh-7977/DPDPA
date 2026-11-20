@@ -13,7 +13,12 @@ import {
   type ProcessingActivity,
   type SuggestionPayload,
 } from "../db/index.ts";
-import type { ActivitySnapshot, ActivityStatus, DataSensitivity, RecipientRole } from "../domain/ropa.ts";
+import type {
+  ActivitySnapshot,
+  ActivityStatus,
+  DataSensitivity,
+  RecipientRole,
+} from "../domain/ropa.ts";
 
 type SystemType = (typeof systems.type.enumValues)[number];
 
@@ -34,30 +39,62 @@ export type ActivityFields = Pick<
 export const ropaRepository = {
   // ─── Inventory: data categories, recipients, systems ───────────────────────
   listDataCategories: (ex: Executor, orgId: string) =>
-    ex.select().from(dataCategories).where(eq(dataCategories.orgId, orgId)).orderBy(asc(dataCategories.code)),
+    ex
+      .select()
+      .from(dataCategories)
+      .where(eq(dataCategories.orgId, orgId))
+      .orderBy(asc(dataCategories.code)),
 
-  async insertDataCategory(ex: Executor, v: { orgId: string; code: string; name: string; sensitivity: DataSensitivity }) {
+  async insertDataCategory(
+    ex: Executor,
+    v: {
+      orgId: string;
+      code: string;
+      name: string;
+      sensitivity: DataSensitivity;
+    },
+  ) {
     const [row] = await ex.insert(dataCategories).values(v).returning();
     return row!;
   },
 
   listRecipients: (ex: Executor, orgId: string) =>
-    ex.select().from(recipients).where(eq(recipients.orgId, orgId)).orderBy(asc(recipients.name)),
+    ex
+      .select()
+      .from(recipients)
+      .where(eq(recipients.orgId, orgId))
+      .orderBy(asc(recipients.name)),
 
   async insertRecipient(
     ex: Executor,
-    v: { orgId: string; name: string; role: RecipientRole; country: string; contractRef: string | null },
+    v: {
+      orgId: string;
+      name: string;
+      role: RecipientRole;
+      country: string;
+      contractRef: string | null;
+    },
   ) {
     const [row] = await ex.insert(recipients).values(v).returning();
     return row!;
   },
 
   listSystems: (ex: Executor, orgId: string) =>
-    ex.select().from(systems).where(eq(systems.orgId, orgId)).orderBy(asc(systems.name)),
+    ex
+      .select()
+      .from(systems)
+      .where(eq(systems.orgId, orgId))
+      .orderBy(asc(systems.name)),
 
   async insertSystem(
     ex: Executor,
-    v: { orgId: string; name: string; type: SystemType; hostingCountry: string | null; assetId: string | null },
+    v: {
+      orgId: string;
+      name: string;
+      type: SystemType;
+      hostingCountry: string | null;
+      assetId: string | null;
+    },
   ) {
     const [row] = await ex.insert(systems).values(v).returning();
     return row!;
@@ -67,9 +104,16 @@ export const ropaRepository = {
   async countOwned(
     ex: Executor,
     orgId: string,
-    ids: { dataCategoryIds: string[]; recipientIds: string[]; systemIds: string[] },
+    ids: {
+      dataCategoryIds: string[];
+      recipientIds: string[];
+      systemIds: string[];
+    },
   ) {
-    const count = async (table: typeof dataCategories | typeof recipients | typeof systems, list: string[]) => {
+    const count = async (
+      table: typeof dataCategories | typeof recipients | typeof systems,
+      list: string[],
+    ) => {
       if (list.length === 0) return 0;
       const rows = await ex
         .select({ id: table.id })
@@ -95,16 +139,29 @@ export const ropaRepository = {
       .orderBy(asc(processingActivities.code));
   },
 
-  async findActivity(ex: Executor, orgId: string, id: string, opts: { forUpdate?: boolean } = {}) {
+  async findActivity(
+    ex: Executor,
+    orgId: string,
+    id: string,
+    opts: { forUpdate?: boolean } = {},
+  ) {
     const q = ex
       .select()
       .from(processingActivities)
-      .where(and(eq(processingActivities.orgId, orgId), eq(processingActivities.id, id)));
+      .where(
+        and(
+          eq(processingActivities.orgId, orgId),
+          eq(processingActivities.id, id),
+        ),
+      );
     const [row] = opts.forUpdate ? await q.for("update") : await q;
     return row ?? null;
   },
 
-  async insertActivity(ex: Executor, v: ActivityFields & { orgId: string; code: string }) {
+  async insertActivity(
+    ex: Executor,
+    v: ActivityFields & { orgId: string; code: string },
+  ) {
     const [row] = await ex.insert(processingActivities).values(v).returning();
     return row!;
   },
@@ -112,9 +169,16 @@ export const ropaRepository = {
   async updateActivity(
     ex: Executor,
     id: string,
-    v: Partial<ActivityFields> & { status?: ActivityStatus; latestVersionNo?: number },
+    v: Partial<ActivityFields> & {
+      status?: ActivityStatus;
+      latestVersionNo?: number;
+    },
   ) {
-    const [row] = await ex.update(processingActivities).set(v).where(eq(processingActivities.id, id)).returning();
+    const [row] = await ex
+      .update(processingActivities)
+      .set(v)
+      .where(eq(processingActivities.id, id))
+      .returning();
     return row!;
   },
 
@@ -122,26 +186,50 @@ export const ropaRepository = {
     ex: Executor,
     orgId: string,
     activityId: string,
-    links: { dataCategoryIds?: string[]; recipientIds?: string[]; systemIds?: string[] },
+    links: {
+      dataCategoryIds?: string[];
+      recipientIds?: string[];
+      systemIds?: string[];
+    },
   ) {
     if (links.dataCategoryIds) {
-      await ex.delete(paDataCategories).where(eq(paDataCategories.activityId, activityId));
+      await ex
+        .delete(paDataCategories)
+        .where(eq(paDataCategories.activityId, activityId));
       if (links.dataCategoryIds.length) {
-        await ex
-          .insert(paDataCategories)
-          .values(links.dataCategoryIds.map((dataCategoryId) => ({ orgId, activityId, dataCategoryId })));
+        await ex.insert(paDataCategories).values(
+          links.dataCategoryIds.map((dataCategoryId) => ({
+            orgId,
+            activityId,
+            dataCategoryId,
+          })),
+        );
       }
     }
     if (links.recipientIds) {
-      await ex.delete(paRecipients).where(eq(paRecipients.activityId, activityId));
+      await ex
+        .delete(paRecipients)
+        .where(eq(paRecipients.activityId, activityId));
       if (links.recipientIds.length) {
-        await ex.insert(paRecipients).values(links.recipientIds.map((recipientId) => ({ orgId, activityId, recipientId })));
+        await ex.insert(paRecipients).values(
+          links.recipientIds.map((recipientId) => ({
+            orgId,
+            activityId,
+            recipientId,
+          })),
+        );
       }
     }
     if (links.systemIds) {
       await ex.delete(paSystems).where(eq(paSystems.activityId, activityId));
       if (links.systemIds.length) {
-        await ex.insert(paSystems).values(links.systemIds.map((systemId) => ({ orgId, activityId, systemId })));
+        await ex.insert(paSystems).values(
+          links.systemIds.map((systemId) => ({
+            orgId,
+            activityId,
+            systemId,
+          })),
+        );
       }
     }
   },
@@ -149,9 +237,17 @@ export const ropaRepository = {
   async linked(ex: Executor, activityId: string) {
     const [cats, recs, syss] = await Promise.all([
       ex
-        .select({ id: dataCategories.id, code: dataCategories.code, name: dataCategories.name, sensitivity: dataCategories.sensitivity })
+        .select({
+          id: dataCategories.id,
+          code: dataCategories.code,
+          name: dataCategories.name,
+          sensitivity: dataCategories.sensitivity,
+        })
         .from(paDataCategories)
-        .innerJoin(dataCategories, eq(paDataCategories.dataCategoryId, dataCategories.id))
+        .innerJoin(
+          dataCategories,
+          eq(paDataCategories.dataCategoryId, dataCategories.id),
+        )
         .where(eq(paDataCategories.activityId, activityId))
         .orderBy(asc(dataCategories.code)),
       ex
@@ -167,7 +263,12 @@ export const ropaRepository = {
         .where(eq(paRecipients.activityId, activityId))
         .orderBy(asc(recipients.name)),
       ex
-        .select({ id: systems.id, name: systems.name, type: systems.type, hostingCountry: systems.hostingCountry })
+        .select({
+          id: systems.id,
+          name: systems.name,
+          type: systems.type,
+          hostingCountry: systems.hostingCountry,
+        })
         .from(paSystems)
         .innerJoin(systems, eq(paSystems.systemId, systems.id))
         .where(eq(paSystems.activityId, activityId))
@@ -179,9 +280,18 @@ export const ropaRepository = {
   // ─── Versions ──────────────────────────────────────────────────────────────
   async insertVersion(
     ex: Executor,
-    v: { orgId: string; activityId: string; versionNo: number; snapshot: ActivitySnapshot; submittedBy: string },
+    v: {
+      orgId: string;
+      activityId: string;
+      versionNo: number;
+      snapshot: ActivitySnapshot;
+      submittedBy: string;
+    },
   ) {
-    const [row] = await ex.insert(processingActivityVersions).values(v).returning();
+    const [row] = await ex
+      .insert(processingActivityVersions)
+      .values(v)
+      .returning();
     return row!;
   },
 
@@ -189,7 +299,12 @@ export const ropaRepository = {
     const [row] = await ex
       .select()
       .from(processingActivityVersions)
-      .where(and(eq(processingActivityVersions.activityId, activityId), eq(processingActivityVersions.decision, "pending")))
+      .where(
+        and(
+          eq(processingActivityVersions.activityId, activityId),
+          eq(processingActivityVersions.decision, "pending"),
+        ),
+      )
       .for("update");
     return row ?? null;
   },
@@ -197,11 +312,20 @@ export const ropaRepository = {
   async decideVersion(
     ex: Executor,
     id: string,
-    v: { decision: "approved" | "rejected"; decidedBy: string; note: string | null },
+    v: {
+      decision: "approved" | "rejected";
+      decidedBy: string;
+      note: string | null;
+    },
   ) {
     await ex
       .update(processingActivityVersions)
-      .set({ decision: v.decision, decidedBy: v.decidedBy, decidedAt: new Date(), decisionNote: v.note })
+      .set({
+        decision: v.decision,
+        decidedBy: v.decidedBy,
+        decidedAt: new Date(),
+        decisionNote: v.note,
+      })
       .where(eq(processingActivityVersions.id, id));
   },
 
@@ -209,7 +333,12 @@ export const ropaRepository = {
     ex
       .select()
       .from(processingActivityVersions)
-      .where(and(eq(processingActivityVersions.orgId, orgId), eq(processingActivityVersions.activityId, activityId)))
+      .where(
+        and(
+          eq(processingActivityVersions.orgId, orgId),
+          eq(processingActivityVersions.activityId, activityId),
+        ),
+      )
       .orderBy(desc(processingActivityVersions.versionNo)),
 
   // ─── Suggestions ───────────────────────────────────────────────────────────
@@ -221,23 +350,36 @@ export const ropaRepository = {
       type: SuggestionPayload["type"];
       payload: SuggestionPayload;
       dedupeKey: string;
-      sourceScanRunId: string;
-      assetId: string;
+      sourceScanRunId: string | null;
+      assetId: string | null;
     }[],
   ) {
     if (rows.length === 0) return 0;
     const inserted = await ex
       .insert(ropaSuggestions)
       .values(rows)
-      .onConflictDoNothing({ target: [ropaSuggestions.orgId, ropaSuggestions.dedupeKey] })
+      .onConflictDoNothing({
+        target: [ropaSuggestions.orgId, ropaSuggestions.dedupeKey],
+      })
       .returning({ id: ropaSuggestions.id });
     return inserted.length;
   },
 
-  listSuggestions(ex: Executor, orgId: string, status?: "pending" | "accepted" | "rejected") {
+  listSuggestions(
+    ex: Executor,
+    orgId: string,
+    status?: "pending" | "accepted" | "rejected",
+    page: { limit: number; offset: number } = { limit: 100, offset: 0 },
+  ) {
     const where = [eq(ropaSuggestions.orgId, orgId)];
     if (status) where.push(eq(ropaSuggestions.status, status));
-    return ex.select().from(ropaSuggestions).where(and(...where)).orderBy(desc(ropaSuggestions.createdAt)).limit(500);
+    return ex
+      .select()
+      .from(ropaSuggestions)
+      .where(and(...where))
+      .orderBy(desc(ropaSuggestions.createdAt), desc(ropaSuggestions.id))
+      .limit(page.limit)
+      .offset(page.offset);
   },
 
   async findSuggestionForUpdate(ex: Executor, orgId: string, id: string) {
@@ -249,7 +391,12 @@ export const ropaRepository = {
     return row ?? null;
   },
 
-  async decideSuggestion(ex: Executor, id: string, status: "accepted" | "rejected", by: string) {
+  async decideSuggestion(
+    ex: Executor,
+    id: string,
+    status: "accepted" | "rejected",
+    by: string,
+  ) {
     await ex
       .update(ropaSuggestions)
       .set({ status, decidedBy: by, decidedAt: sql`now()` })
@@ -259,14 +406,25 @@ export const ropaRepository = {
   /** Existing names/codes so scans don't suggest what's already in the ROPA. */
   async inventoryKeys(ex: Executor, orgId: string) {
     const [cats, recs, syss] = await Promise.all([
-      ex.select({ code: dataCategories.code }).from(dataCategories).where(eq(dataCategories.orgId, orgId)),
-      ex.select({ name: recipients.name }).from(recipients).where(eq(recipients.orgId, orgId)),
-      ex.select({ assetId: systems.assetId }).from(systems).where(eq(systems.orgId, orgId)),
+      ex
+        .select({ code: dataCategories.code })
+        .from(dataCategories)
+        .where(eq(dataCategories.orgId, orgId)),
+      ex
+        .select({ name: recipients.name })
+        .from(recipients)
+        .where(eq(recipients.orgId, orgId)),
+      ex
+        .select({ assetId: systems.assetId })
+        .from(systems)
+        .where(eq(systems.orgId, orgId)),
     ]);
     return {
       categoryCodes: new Set(cats.map((c) => c.code)),
       recipientNames: new Set(recs.map((r) => r.name.toLowerCase())),
-      systemAssetIds: new Set(syss.map((s) => s.assetId).filter((x): x is string => x !== null)),
+      systemAssetIds: new Set(
+        syss.map((s) => s.assetId).filter((x): x is string => x !== null),
+      ),
     };
   },
 };
