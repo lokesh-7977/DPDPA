@@ -68,7 +68,7 @@ GRANT dpdpa_app TO dpdpa_api;
   `neon_superuser`, which can bypass RLS). In production the API and worker refuse to start if
   their login is, or can switch to, a superuser / BYPASSRLS role, or owns the tables. If the login is not a member of `dpdpa_app`, every query fails and
   `/health/ready` returns 503.
-- TO VERIFY on Neon: the project owner (`neon_superuser`) may `CREATE ROLE` in a migration.
+- Verified on Neon (Postgres 18.7, 2026-11-20): the owner creates `dpdpa_app` in migration 0053 and can switch to it; all 86 org tables get RLS + policy.
 - Cost: a statement outside a transaction becomes a short transaction (BEGIN, then scope and
   statement pipelined, then COMMIT: about two extra round trips).
 - `db.transaction(fn, { isolationLevel })` is not supported (the scope statement runs first).
