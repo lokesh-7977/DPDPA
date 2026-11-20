@@ -378,3 +378,20 @@ describe("every entry point narrows to the right scope", () => {
     assert.deepEqual(seen["system.cleanup"], { kind: "system" });
   });
 });
+
+describe("scope helpers", () => {
+  test("a lazy query returned from the scope runs inside it", async () => {
+    const who = (await runInScope({ kind: "system" }, () =>
+      t.db.execute(sql`SELECT current_user AS u`),
+    )) as unknown as { rows: { u: string }[] };
+    assert.equal(who.rows[0]!.u, "dpdpa_app");
+    const scoped = (await runInScope({ kind: "org", orgId: a.orgId }, () =>
+      t.db.execute(sql`SELECT current_setting('app.org_id', true) AS org`),
+    )) as unknown as { rows: { org: string }[] };
+    assert.equal(
+      scoped.rows[0]!.org,
+      a.orgId,
+      "the org id travels with the lazy query",
+    );
+  });
+});
