@@ -16,7 +16,8 @@
     "db:studio": "drizzle-kit studio",
     "test": "tsx --test src/test/*.test.ts",
     "create-super-admin": "tsx --env-file-if-exists=.env src/scripts/create-super-admin.ts",
-    "seed:catalog": "tsx --env-file-if-exists=.env src/scripts/seed-catalog.ts"
+    "seed:catalog": "tsx --env-file-if-exists=.env src/scripts/seed-catalog.ts",
+    "rotate-vault-key": "tsx --env-file-if-exists=.env src/scripts/rotate-vault-key.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.16",

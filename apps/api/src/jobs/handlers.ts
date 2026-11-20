@@ -16,6 +16,7 @@ import { assessmentsService } from "../services/assessments.service.ts";
 import { systemService } from "../services/system.service.ts";
 import { integrationsService } from "../services/integrations.service.ts";
 import { githubService } from "../services/github.service.ts";
+import { governanceRemindersService } from "../services/governance-reminders.service.ts";
 import { ropaService } from "../services/ropa.service.ts";
 
 /** One handler per job type. Return value is stored as the job's result (ids/counts only). */
@@ -52,12 +53,32 @@ export const handlers: { [T in JobType]: Handler<T> } = {
     return { artifactId: artifact.id, activities: data.activities.length };
   },
 
-  "dpia.sdf_reminders": (tx) => notificationsService.sdfDpiaReminders(tx),
+  "dpia.sdf_reminders": {
+    detached: (job, lease) =>
+      notificationsService.sdfDpiaReminders(
+        job.payload.day,
+        new Date(
+          Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+        ),
+        lease,
+      ),
+  },
 
-  "remediation.overdue_digest": (tx, job) =>
-    notificationsService.overdueDigest(tx, job.payload.day),
+  "remediation.overdue_digest": {
+    detached: (job, lease) =>
+      notificationsService.overdueDigest(job.payload.day, lease),
+  },
 
-  "rights.deadline_digest": (tx) => notificationsService.rightsDeadlines(tx),
+  "rights.deadline_digest": {
+    detached: (job, lease) =>
+      notificationsService.rightsDeadlines(
+        job.payload.day,
+        new Date(
+          Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+        ),
+        lease,
+      ),
+  },
 
   // The later of the scheduled hour and now: a delayed job still judges deadlines at run time.
   "breach.deadline_alerts": (tx, job) =>
@@ -69,7 +90,16 @@ export const handlers: { [T in JobType]: Handler<T> } = {
   "breach.notify_principals": (tx, job) =>
     breachNoticesService.sendBatch(tx, job.orgId!, job.payload.breachId),
 
-  "controls.review_digest": (tx) => complianceService.reviewDigest(tx),
+  "controls.review_digest": {
+    detached: (job, lease) =>
+      complianceService.reviewDigest(
+        job.payload.day,
+        new Date(
+          Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+        ),
+        lease,
+      ),
+  },
 
   // The later of the scheduled day and now: a delayed job still judges expiry at run time.
   "vendors.contract_refresh": (tx, job) =>
@@ -155,6 +185,17 @@ export const handlers: { [T in JobType]: Handler<T> } = {
     detached: (job, lease) =>
       integrationsService.sync(job.orgId!, job.payload.integrationId, lease),
   },
+  // Daily governance reminders (risk reviews / acceptances, access reviews, policy acks).
+  "governance.reminders": {
+    detached: (job, lease) =>
+      governanceRemindersService.run(
+        new Date(
+          Math.max(Date.now(), Date.parse(`${job.payload.day}T00:00:00Z`)),
+        ),
+        lease,
+      ),
+  },
+
   // Step 17: GitHub App scan (scanner outside any transaction, then the CI ingest).
   "github.scan": {
     detached: (job, lease) =>

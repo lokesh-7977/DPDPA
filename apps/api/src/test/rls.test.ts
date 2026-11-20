@@ -395,3 +395,71 @@ describe("scope helpers", () => {
     );
   });
 });
+
+describe("least privilege on append-only tables", () => {
+  test("never-deleted records: no DELETE for the app role", async () => {
+    const tables = [
+      "risks",
+      "assessments",
+      "dpia_versions",
+      "ai_system_versions",
+      "notice_versions",
+      "processing_activity_versions",
+      "access_reviews",
+      "access_review_items",
+      "scan_authorizations",
+      "auditor_rooms",
+      "auditor_grants",
+      "control_evidence",
+      "questionnaires",
+      "questionnaire_items",
+      "training_assignments",
+      "vendor_assessments",
+      "vendor_contracts",
+    ];
+    for (const name of tables) {
+      const [r] = await runInScope(
+        { kind: "owner" },
+        async () =>
+          (
+            (await t.db.execute(
+              sql`SELECT has_table_privilege('dpdpa_app', ${name}, 'DELETE') AS d`,
+            )) as unknown as { rows: { d: boolean }[] }
+          ).rows,
+      );
+      assert.equal(r!.d, false, `${name} delete`);
+    }
+  });
+
+  test("every table guarded as append-only has no UPDATE / DELETE for the app role", async () => {
+    // Tables whose trigger function blocks every change (vendor contracts allow attaching the
+    // signed copy once, so they keep UPDATE).
+    const rows = await runInScope(
+      { kind: "owner" },
+      async () =>
+        (
+          (await t.db.execute(sql`
+          SELECT DISTINCT c.relname AS t,
+                 has_table_privilege('dpdpa_app', c.oid, 'UPDATE') AS u,
+                 has_table_privilege('dpdpa_app', c.oid, 'DELETE') AS d,
+                 has_table_privilege('dpdpa_app', c.oid, 'INSERT') AS i
+          FROM pg_trigger tg
+          JOIN pg_class c ON c.oid = tg.tgrelid
+          JOIN pg_proc p ON p.oid = tg.tgfoid
+          WHERE NOT tg.tgisinternal
+            AND p.proname LIKE '%block_mutation'
+            AND c.relname <> 'vendor_contracts'
+          UNION
+          SELECT 'vendor_contracts', true, has_table_privilege('dpdpa_app', 'vendor_contracts', 'DELETE'), true`)) as unknown as {
+            rows: { t: string; u: boolean; d: boolean; i: boolean }[];
+          }
+        ).rows,
+    );
+    assert.ok(rows.length >= 12, `found ${rows.length}`);
+    for (const x of rows) {
+      if (x.t !== "vendor_contracts") assert.equal(x.u, false, `${x.t} update`);
+      assert.equal(x.d, false, `${x.t} delete`);
+      assert.equal(x.i, true, `${x.t} insert`);
+    }
+  });
+});

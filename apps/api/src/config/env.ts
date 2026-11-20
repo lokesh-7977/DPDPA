@@ -37,6 +37,21 @@ const schema = z.object({
       "CREDENTIAL_VAULT_KEY must be 32 random bytes, base64 (openssl rand -base64 32)",
     )
     .optional(),
+  /** Version written with every sealed value; bump it with each key rotation. */
+  CREDENTIAL_VAULT_KEY_VERSION: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .default(1),
+  /** The key being replaced during a vault key rotation (docs/operations.md); same format. */
+  CREDENTIAL_VAULT_KEY_PREVIOUS: z
+    .string()
+    .refine(
+      (s) => /^[A-Za-z0-9+/]{43}=$/.test(s),
+      "CREDENTIAL_VAULT_KEY_PREVIOUS must be 32 bytes, base64",
+    )
+    .optional(),
   /** Only trust X-Forwarded-For when running behind a known reverse proxy. */
   TRUST_PROXY: z.stringbool().default(false),
   CORS_ORIGINS: z
@@ -105,6 +120,18 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+if (
+  env.CREDENTIAL_VAULT_KEY_PREVIOUS &&
+  (!env.CREDENTIAL_VAULT_KEY ||
+    env.CREDENTIAL_VAULT_KEY_PREVIOUS === env.CREDENTIAL_VAULT_KEY)
+) {
+  // Swapped or copied keys would make a rotation silently keep the old key.
+  bootLog.fatal(
+    "CREDENTIAL_VAULT_KEY_PREVIOUS needs CREDENTIAL_VAULT_KEY set to a different (new) key",
+  );
+  process.exit(1);
+}
 
 if (env.MAIL_DRIVER === "resend" && (!env.RESEND_API_KEY || !env.MAIL_FROM)) {
   bootLog.fatal("MAIL_DRIVER=resend needs RESEND_API_KEY and MAIL_FROM");

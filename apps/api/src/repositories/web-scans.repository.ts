@@ -11,6 +11,22 @@ import {
 const ACTIVE = ["queued", "running"] as const;
 
 export const webScansRepository = {
+  /** Id of the latest completed scan per domain and scan type (controls, score). */
+  async latestCompletedIds(ex: Executor, orgId: string) {
+    const rows = await ex
+      .selectDistinctOn([webScans.domainId, webScans.scanType], {
+        id: webScans.id,
+      })
+      .from(webScans)
+      .where(and(eq(webScans.orgId, orgId), eq(webScans.status, "completed")))
+      .orderBy(
+        webScans.domainId,
+        webScans.scanType,
+        sql`${webScans.finishedAt} DESC NULLS LAST`,
+      );
+    return rows.map((r) => r.id);
+  },
+
   async insert(ex: Executor, v: typeof webScans.$inferInsert) {
     const [row] = await ex.insert(webScans).values(v).returning();
     return row!;

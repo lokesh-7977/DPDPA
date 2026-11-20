@@ -15,7 +15,11 @@ import { crawlPath, resolveHref } from "../domain/web-audit.ts";
 import { domainsRepository } from "../repositories/domains.repository.ts";
 import { scanCredentialsRepository } from "../repositories/scan-credentials.repository.ts";
 import { auditService } from "./audit.service.ts";
-import { credentialVault, VAULT_KEY_VERSION } from "./credential-vault.ts";
+import {
+  credentialVault,
+  VAULT_AAD,
+  VAULT_KEY_VERSION,
+} from "./credential-vault.ts";
 import { webFetcher, type FetchResult } from "./web-fetcher.ts";
 
 /**
@@ -24,7 +28,7 @@ import { webFetcher, type FetchResult } from "./web-fetcher.ts";
  * wipes the sealed value.
  */
 
-const aad = (orgId: string, id: string) => `scan_credential:${orgId}:${id}`;
+const aad = VAULT_AAD.scanCredential;
 const PATH = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$/;
 const MAX_LOGIN_REDIRECTS = 3;
 

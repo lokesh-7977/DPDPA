@@ -20,6 +20,7 @@ import {
   type Assessment,
   type Executor,
 } from "../db/index.ts";
+import { webScansRepository } from "./web-scans.repository.ts";
 
 export const assessmentsRepository = {
   async nextNumber(ex: Executor, orgId: string) {
@@ -94,27 +95,15 @@ export const assessmentsRepository = {
 
   /** Findings of the latest completed scan per domain and scan type, by severity. */
   async latestWebFindings(ex: Executor, orgId: string) {
-    const scans = await ex
-      .select({
-        id: webScans.id,
-        domainId: webScans.domainId,
-        scanType: webScans.scanType,
-      })
-      .from(webScans)
-      .where(and(eq(webScans.orgId, orgId), eq(webScans.status, "completed")))
-      .orderBy(desc(webScans.finishedAt));
-    const latest = new Map<string, string>();
-    for (const s of scans)
-      if (!latest.has(`${s.domainId}:${s.scanType}`))
-        latest.set(`${s.domainId}:${s.scanType}`, s.id);
-    if (!latest.size) return [];
+    const latest = await webScansRepository.latestCompletedIds(ex, orgId);
+    if (!latest.length) return [];
     return ex
       .select({ severity: webScanFindings.severity, n: count() })
       .from(webScanFindings)
       .where(
         and(
           eq(webScanFindings.orgId, orgId),
-          inArray(webScanFindings.scanId, [...latest.values()]),
+          inArray(webScanFindings.scanId, latest),
         ),
       )
       .groupBy(webScanFindings.severity);
