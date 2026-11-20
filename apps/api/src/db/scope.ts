@@ -17,8 +17,31 @@ const storage = new AsyncLocalStorage<DbScope>();
 const fallback: DbScope =
   env.NODE_ENV === "test" ? { kind: "owner" } : { kind: "system" };
 
+/**
+ * Runs fn in the scope. A lazy thenable result (e.g. a drizzle query, which only runs when
+ * awaited) is started here, inside the scope, so it never runs under the caller's scope, and
+ * comes back as a plain Promise (builder methods can't be chained on it). Native Promises and
+ * their subclasses are returned as they are.
+ */
+export function runInScope<T>(
+  scope: DbScope,
+  fn: () => PromiseLike<T>,
+): Promise<T>;
+export function runInScope<T>(scope: DbScope, fn: () => T): T;
 export function runInScope<T>(scope: DbScope, fn: () => T): T {
-  return storage.run(scope, fn);
+  return storage.run(scope, () => {
+    const result = fn();
+    if (
+      result !== null &&
+      typeof result === "object" &&
+      !(result instanceof Promise) &&
+      typeof (result as { then?: unknown }).then === "function"
+    ) {
+      const lazy = result as unknown as PromiseLike<unknown>;
+      return new Promise((resolve, reject) => lazy.then(resolve, reject)) as T;
+    }
+    return result;
+  });
 }
 
 export function currentScope(): DbScope {
