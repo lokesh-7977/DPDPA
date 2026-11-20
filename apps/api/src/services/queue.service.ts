@@ -33,6 +33,7 @@ export type JobPayloads = {
   "integration.sync": { integrationId: string };
   "integrations.sync_all": { day: string };
   "github.scan": { repoRef: string };
+  "governance.reminders": { day: string };
 };
 
 export const queueService = {
@@ -178,6 +179,13 @@ export const queueService = {
         null,
         { day },
         { idempotencyKey: `integrations.sync_all:${day}` },
+      );
+      await queueService.enqueue(
+        tx,
+        "governance.reminders",
+        null,
+        { day },
+        { idempotencyKey: `governance.reminders:${day}` },
       );
     });
   },

@@ -20,6 +20,7 @@ export const jobTypes = [
   "integration.sync",
   "integrations.sync_all",
   "github.scan",
+  "governance.reminders",
 ] as const;
 export type JobType = (typeof jobTypes)[number];
 

@@ -10,8 +10,15 @@ import {
   type SQL,
 } from "drizzle-orm";
 import {
+  accessReviews,
+  memberships,
   aiSystems,
   breaches,
+  policies,
+  policyVersions,
+  trainingAssignments,
+  trainingCourses,
+  webScanFindings,
   controlEvidence,
   findings,
   orgControlSettings,
@@ -25,6 +32,7 @@ import {
   type ControlEvidence,
   type Executor,
 } from "../db/index.ts";
+import { webScansRepository } from "./web-scans.repository.ts";
 
 export type ControlKey = { frameworkCode: string; controlCode: string };
 export type SettingsPatch = Partial<{
@@ -116,64 +124,180 @@ export const complianceRepository = {
 
   /** Accepted evidence expiring before `before` (not yet expired), across active orgs, with owner email. */
   expiringAccepted(ex: Executor, now: Date, before: Date) {
-    return ex
-      .select({
-        orgId: controlEvidence.orgId,
-        orgName: organizations.name,
-        frameworkCode: controlEvidence.frameworkCode,
-        controlCode: controlEvidence.controlCode,
-        title: controlEvidence.title,
-        validUntil: controlEvidence.validUntil,
-        ownerEmail: users.email,
-      })
-      .from(controlEvidence)
-      .innerJoin(organizations, eq(controlEvidence.orgId, organizations.id))
-      .innerJoin(
-        orgControlSettings,
-        and(
-          eq(orgControlSettings.orgId, controlEvidence.orgId),
-          eq(orgControlSettings.frameworkCode, controlEvidence.frameworkCode),
-          eq(orgControlSettings.controlCode, controlEvidence.controlCode),
-        ),
-      )
-      .innerJoin(users, eq(orgControlSettings.ownerUserId, users.id))
-      .where(
-        and(
-          eq(organizations.status, "active"),
-          eq(users.status, "active"),
-          eq(controlEvidence.status, "accepted"),
-          sql`${controlEvidence.validUntil} > ${now}`,
-          lt(controlEvidence.validUntil, before),
-        ),
-      )
-      .orderBy(asc(controlEvidence.validUntil));
+    return (
+      ex
+        .select({
+          orgId: controlEvidence.orgId,
+          orgName: organizations.name,
+          frameworkCode: controlEvidence.frameworkCode,
+          controlCode: controlEvidence.controlCode,
+          title: controlEvidence.title,
+          validUntil: controlEvidence.validUntil,
+          ownerEmail: users.email,
+        })
+        .from(controlEvidence)
+        .innerJoin(organizations, eq(controlEvidence.orgId, organizations.id))
+        .innerJoin(
+          orgControlSettings,
+          and(
+            eq(orgControlSettings.orgId, controlEvidence.orgId),
+            eq(orgControlSettings.frameworkCode, controlEvidence.frameworkCode),
+            eq(orgControlSettings.controlCode, controlEvidence.controlCode),
+          ),
+        )
+        .innerJoin(users, eq(orgControlSettings.ownerUserId, users.id))
+        // Only current members: someone removed from the org stops receiving its digest.
+        .innerJoin(
+          memberships,
+          and(
+            eq(memberships.orgId, orgControlSettings.orgId),
+            eq(memberships.userId, orgControlSettings.ownerUserId),
+          ),
+        )
+        .where(
+          and(
+            eq(organizations.status, "active"),
+            eq(users.status, "active"),
+            eq(controlEvidence.status, "accepted"),
+            sql`${controlEvidence.validUntil} > ${now}`,
+            lt(controlEvidence.validUntil, before),
+          ),
+        )
+        .orderBy(asc(controlEvidence.validUntil))
+    );
   },
 
   /** Controls whose periodic review is overdue, with owner email. */
   reviewsOverdue(ex: Executor, now: Date) {
-    return ex
-      .select({
-        orgId: orgControlSettings.orgId,
-        orgName: organizations.name,
-        frameworkCode: orgControlSettings.frameworkCode,
-        controlCode: orgControlSettings.controlCode,
-        lastReviewedAt: orgControlSettings.lastReviewedAt,
-        ownerEmail: users.email,
-      })
-      .from(orgControlSettings)
-      .innerJoin(organizations, eq(orgControlSettings.orgId, organizations.id))
-      .innerJoin(users, eq(orgControlSettings.ownerUserId, users.id))
-      .where(
-        and(
-          eq(organizations.status, "active"),
-          eq(users.status, "active"),
-          isNotNull(orgControlSettings.lastReviewedAt),
-          sql`${orgControlSettings.lastReviewedAt} + make_interval(days => ${orgControlSettings.reviewEveryDays}) < ${now}`,
-        ),
-      );
+    return (
+      ex
+        .select({
+          orgId: orgControlSettings.orgId,
+          orgName: organizations.name,
+          frameworkCode: orgControlSettings.frameworkCode,
+          controlCode: orgControlSettings.controlCode,
+          lastReviewedAt: orgControlSettings.lastReviewedAt,
+          ownerEmail: users.email,
+        })
+        .from(orgControlSettings)
+        .innerJoin(
+          organizations,
+          eq(orgControlSettings.orgId, organizations.id),
+        )
+        .innerJoin(users, eq(orgControlSettings.ownerUserId, users.id))
+        // Only current members: someone removed from the org stops receiving its digest.
+        .innerJoin(
+          memberships,
+          and(
+            eq(memberships.orgId, orgControlSettings.orgId),
+            eq(memberships.userId, orgControlSettings.ownerUserId),
+          ),
+        )
+        .where(
+          and(
+            eq(organizations.status, "active"),
+            eq(users.status, "active"),
+            isNotNull(orgControlSettings.lastReviewedAt),
+            sql`${orgControlSettings.lastReviewedAt} + make_interval(days => ${orgControlSettings.reviewEveryDays}) < ${now}`,
+          ),
+        )
+    );
   },
 
   // ─── Facts for automatic checks (read-only, across modules) ─────────────────
+
+  /** Latest completed website scan per domain and type: finding counts by code. */
+  async webFacts(ex: Executor, orgId: string) {
+    const latest = await webScansRepository.latestCompletedIds(ex, orgId);
+    if (!latest.length) return null;
+    const rows = await ex
+      .select({
+        code: webScanFindings.code,
+        severity: webScanFindings.severity,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(webScanFindings)
+      .where(
+        and(
+          eq(webScanFindings.orgId, orgId),
+          inArray(webScanFindings.scanId, latest),
+        ),
+      )
+      .groupBy(webScanFindings.code, webScanFindings.severity);
+    const codes: Record<string, number> = {};
+    let severeSecurity = 0;
+    for (const row of rows) {
+      codes[row.code] = (codes[row.code] ?? 0) + row.n;
+      const security =
+        row.code.startsWith("SEC-") || row.code === "WEB-FORM-INSECURE";
+      if (security && row.severity === "high") severeSecurity += row.n;
+    }
+    return { codes, severeSecurity };
+  },
+
+  /** Overdue training assignments and the last completed access review. */
+  async workforceFacts(ex: Executor, orgId: string, today: string) {
+    const [t] = await ex
+      .select({
+        total: sql<number>`count(*)::int`,
+        overdue: sql<number>`count(*) filter (where ${trainingAssignments.completedAt} is null and ${trainingAssignments.dueDate} < ${today})::int`,
+      })
+      .from(trainingAssignments)
+      // As the training report: people who left and retired courses don't count.
+      .innerJoin(
+        memberships,
+        and(
+          eq(memberships.orgId, trainingAssignments.orgId),
+          eq(memberships.userId, trainingAssignments.userId),
+        ),
+      )
+      .innerJoin(
+        trainingCourses,
+        and(
+          eq(trainingCourses.orgId, trainingAssignments.orgId),
+          eq(trainingCourses.id, trainingAssignments.courseId),
+          eq(trainingCourses.active, true),
+        ),
+      )
+      .where(eq(trainingAssignments.orgId, orgId));
+    const [a] = await ex
+      .select({
+        total: sql<number>`count(*)::int`,
+        last: sql<Date | null>`max(${accessReviews.completedAt})`.mapWith(
+          accessReviews.completedAt,
+        ),
+      })
+      .from(accessReviews)
+      .where(
+        and(
+          eq(accessReviews.orgId, orgId),
+          eq(accessReviews.status, "completed"),
+        ),
+      );
+    if (!t?.total && !a?.total) return null;
+    return {
+      overdueTraining: t?.overdue ?? 0,
+      lastAccessReviewAt: a?.last ?? null,
+    };
+  },
+
+  /** Policy codes with an approved current version. */
+  async approvedPolicyCodes(ex: Executor, orgId: string) {
+    const rows = await ex
+      .selectDistinct({ code: policies.code })
+      .from(policies)
+      .innerJoin(
+        policyVersions,
+        and(
+          eq(policyVersions.orgId, policies.orgId),
+          eq(policyVersions.policyId, policies.id),
+        ),
+      )
+      .where(
+        and(eq(policies.orgId, orgId), eq(policyVersions.status, "approved")),
+      );
+    return rows.map((x) => x.code);
+  },
 
   async facts(ex: Executor, orgId: string, now: Date) {
     const [act] = await ex

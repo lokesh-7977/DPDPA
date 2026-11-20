@@ -110,7 +110,7 @@ index is kept.
 |---|---|
 | `JWT_SECRET` | All sessions, room sessions and rate-limit keys reset; users sign in again |
 | `AUDIT_HMAC_KEY` | New audit rows use the new key; old rows keep the old pseudonyms |
-| `CREDENTIAL_VAULT_KEY` | No re-encryption tool yet: revoke and re-add website test accounts after rotating |
+| `CREDENTIAL_VAULT_KEY` | 1. Set the new key as `CREDENTIAL_VAULT_KEY`, the old one as `CREDENTIAL_VAULT_KEY_PREVIOUS`, and raise `CREDENTIAL_VAULT_KEY_VERSION` by one; deploy API + worker (all instances). 2. Run `pnpm --filter api rotate-vault-key` (exit 1 if a value opens with neither key). 3. Run it again: it must print `Re-sealed 0` (no instance still sealing with the old key); `SELECT count(*) FROM scan_credentials WHERE secret IS NOT NULL AND key_version < <new version>` (same for `integrations`) must be 0. 4. Remove `CREDENTIAL_VAULT_KEY_PREVIOUS` and deploy again; keep the gap between the deploys short. |
 
 ## Housekeeping (automatic)
 

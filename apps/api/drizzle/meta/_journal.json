@@ -393,6 +393,13 @@
       "when": 1795167041801,
       "tag": "0055_github_app",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1795192537049,
+      "tag": "0056_append_only_grants",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,4 @@
+import type { PolicyCode } from "./program.ts";
 /**
  * Phase 9c — control status from evidence and automatic checks. Pure.
  *
@@ -31,6 +32,11 @@ const DAY = 86_400_000;
 export type CheckResult = {
   result: "pass" | "fail" | "not_determined";
   reason: string;
+  /**
+   * A not_determined that also stops "met" (evidence alone isn't enough), e.g. a required policy
+   * without an approved version. Plain not_determined (no facts yet) doesn't block evidence.
+   */
+  blocksMet?: boolean;
 };
 
 export type EvidenceView = { status: EvidenceStatus; validUntil: Date };
@@ -44,6 +50,8 @@ export function controlStatus(v: {
   const now = v.now ?? new Date();
   if (!v.applicable) return "not_applicable";
   if (v.check?.result === "fail") return "not_met";
+  if (v.check?.result === "not_determined" && v.check.blocksMet)
+    return "not_determined";
   const accepted = v.evidence.filter((e) => e.status === "accepted");
   if (accepted.some((e) => e.validUntil > now)) return "met";
   if (accepted.length) return "stale";
@@ -92,6 +100,20 @@ export type OrgFacts = {
     toRestricted: number;
     unregisteredAbroad: number;
   };
+  /** Latest completed website scans (per domain and type); absent when none completed. */
+  web?: {
+    /** Finding code → count, from the latest completed scan of each domain / type. */
+    codes: Record<string, number>;
+    /** High-severity security findings (SEC-*, insecure forms). */
+    severeSecurity: number;
+  };
+  /** Training and access reviews (phase 9e); absent when the org has neither. */
+  workforce?: {
+    overdueTraining: number;
+    lastAccessReviewAt: Date | null;
+  };
+  /** Policies the programme requires that have no approved version yet (phase 9a / 9b). */
+  missingPolicies?: string[];
   /** Cloud / Workspace connectors (step 15); absent when none is connected. */
   cloud?: {
     connected: number;
@@ -243,11 +265,127 @@ export const automaticChecks: Record<string, (f: OrgFacts) => CheckResult> = {
       : fail("Annual DPIA missing or overdue"),
 };
 
+// ─── Supplemental checks from other modules ──────────────────────────────────
+
+/** Website findings (phase 4b) that show a control is not met. */
+export const WEB_FINDINGS_BY_CONTROL: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "DPDP-NOTICE-01": ["WEB-NO-NOTICE-LINK", "WEB-FORM-WITHOUT-NOTICE"],
+  "DPDP-CONSENT-01": [
+    "WEB-NO-CONSENT-MECHANISM",
+    "WEB-PRECHECKED-CONSENT",
+    "WEB-TRACKER-PRECONSENT",
+    "WEB-COOKIE-PRECONSENT",
+  ],
+  "DPDP-CONTACT-01": ["WEB-NO-GRIEVANCE-CONTACT"],
+  "DPDP-GRIEV-01": ["WEB-NO-GRIEVANCE-CONTACT"],
+  "DPDP-RIGHTS-01": ["WEB-NO-RIGHTS-CHANNEL"],
+  // No way to withdraw consent online (s.6(4)).
+  "DPDP-CONSENT-02": ["WEB-NO-RIGHTS-CHANNEL"],
+  // Personal data in URLs leaks into logs / referrers: minimisation and security (s.8(5), r.6).
+  "DPDP-MIN-01": ["WEB-PD-IN-URL"],
+};
+
+/** Required policy (domain/program POLICY_CODES) → the control it documents. */
+export const POLICY_CONTROL: Readonly<Record<PolicyCode, string>> = {
+  privacy_notice: "DPDP-NOTICE-01",
+  consent_management: "DPDP-CONSENT-01",
+  website_cookies_tracking: "DPDP-CONSENT-01",
+  information_security: "DPDP-SEC-01",
+  breach_response: "DPDP-BREACH-01",
+  rights_requests: "DPDP-RIGHTS-01",
+  grievance_redressal: "DPDP-GRIEV-01",
+  retention_erasure: "DPDP-RETENTION-01",
+  processor_management: "DPDP-PROC-01",
+  children_data: "DPDP-CHILD-01",
+  cross_border_transfers: "DPDP-XBORDER-01",
+  ai_governance: "AI-INV-01",
+  dpia_audit: "DPDP-SDF-01",
+};
+
+/**
+ * DPDP-SEC-01 fails when the last completed access review is older than this. Reminders nudge
+ * every 90 days (governance-reminders ACCESS_REVIEW_EVERY_DAYS): the 90-day cycle is the good
+ * practice we prompt for; a year without one is the point where safeguards are not shown.
+ */
+export const ACCESS_REVIEW_MAX_DAYS = 365;
+
+function supplementalChecks(code: string, f: OrgFacts): CheckResult[] {
+  const out: CheckResult[] = [];
+  const webCodes = WEB_FINDINGS_BY_CONTROL[code];
+  if (webCodes && f.web) {
+    const found = webCodes.filter((c) => (f.web!.codes[c] ?? 0) > 0);
+    out.push(
+      found.length
+        ? fail(`Latest website scan: ${found.join(", ")}`)
+        : pass("Latest website scan found no related issue"),
+    );
+  }
+  if (code === "DPDP-SEC-01") {
+    if (f.web?.codes["WEB-PD-IN-URL"])
+      out.push(
+        fail("Latest website scan: WEB-PD-IN-URL (personal data in URLs)"),
+      );
+    if (f.web?.severeSecurity)
+      out.push(
+        fail(
+          `${f.web.severeSecurity} high-severity website security finding(s)`,
+        ),
+      );
+    const w = f.workforce;
+    if (w?.overdueTraining)
+      out.push(
+        fail(`${w.overdueTraining} privacy training assignment(s) overdue`),
+      );
+    if (
+      w?.lastAccessReviewAt &&
+      f.now.getTime() - w.lastAccessReviewAt.getTime() >
+        ACCESS_REVIEW_MAX_DAYS * DAY
+    )
+      out.push(fail("Last access review is more than a year old"));
+  }
+  const missing = (f.missingPolicies ?? []).filter(
+    (p) => POLICY_CONTROL[p as PolicyCode] === code,
+  );
+  if (missing.length)
+    out.push({
+      ...nd(`Required policy not approved yet: ${missing.join(", ")}`),
+      blocksMet: true,
+    });
+  return out;
+}
+
+/**
+ * The control's own check combined with checks from other modules: any failure fails it
+ * (reasons joined), otherwise any "not determined" wins, otherwise it passes. Null when nothing
+ * applies (evidence-only control without related facts).
+ */
 export function runCheck(
   controlCode: string,
   facts: OrgFacts | null,
 ): CheckResult | null {
   const check = automaticChecks[controlCode];
-  if (!check) return null;
-  return facts ? check(facts) : nd("Facts unavailable");
+  if (!facts) return check ? nd("Facts unavailable") : null;
+  const results = [
+    ...(check ? [check(facts)] : []),
+    ...supplementalChecks(controlCode, facts),
+  ];
+  if (!results.length) return null;
+  const fails = results.filter((r) => r.result === "fail");
+  if (fails.length) return fail(fails.map((r) => r.reason).join("; "));
+  const open =
+    results.find((r) => r.result === "not_determined" && r.blocksMet) ??
+    results.find((r) => r.result === "not_determined");
+  return open ?? results[0]!;
+}
+
+/** True when a control has its own check or receives facts from other modules. */
+export function hasChecks(code: string): boolean {
+  return (
+    Object.hasOwn(automaticChecks, code) ||
+    Object.hasOwn(WEB_FINDINGS_BY_CONTROL, code) ||
+    Object.values(POLICY_CONTROL).includes(code) ||
+    code === "DPDP-SEC-01"
+  );
 }

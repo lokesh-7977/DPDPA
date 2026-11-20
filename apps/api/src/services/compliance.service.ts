@@ -14,12 +14,13 @@ import {
   DEFAULT_REVIEW_DAYS,
   EXPIRY_WARNING_DAYS,
   readiness,
+  hasChecks,
   runCheck,
   type ControlStatus,
   type OrgFacts,
 } from "../domain/compliance.ts";
 import { sdfDpiaStatus } from "../domain/dpia.ts";
-import { utcDay } from "../domain/jobs.ts";
+import { utcDay, type Lease } from "../domain/jobs.ts";
 import {
   conflict,
   forbidden,
@@ -40,10 +41,13 @@ import { artifactsService } from "./artifacts.service.ts";
 import { auditService } from "./audit.service.ts";
 import { transferFacts } from "./transfers.service.ts";
 import { catalogService } from "./catalog.service.ts";
+import { digestRun } from "./notifications.service.ts";
 import { mailer, type MailMessage } from "./mailer.ts";
 import { uncoveredCountries } from "../domain/cloud-inventory.ts";
 import { CLOUD_FRESH_DAYS } from "../domain/compliance.ts";
 import { integrationsRepository } from "../repositories/integrations.repository.ts";
+import { programRepository } from "../repositories/program.repository.ts";
+import { requiredPolicies } from "../domain/program.ts";
 
 /**
  * Phase 9c — controls and evidence. Status is computed on read from current evidence and
@@ -63,12 +67,26 @@ const keyStr = (k: ControlKey) => `${k.frameworkCode}|${k.controlCode}`;
 async function facts(orgId: string, now: Date): Promise<OrgFacts> {
   const org = await organizationsRepository.findById(db, orgId);
   if (!org) throw notFound();
-  const [base, lastAnnual, transfers, cloud] = await Promise.all([
+  const [
+    base,
+    lastAnnual,
+    transfers,
+    cloud,
+    web,
+    workforce,
+    approved,
+    program,
+  ] = await Promise.all([
     complianceRepository.facts(db, orgId, now),
     dpiaRepository.lastApprovedAnnual(db, orgId),
     transferFacts(db, orgId, utcDay(now)),
     integrationsRepository.cloudFacts(db, orgId),
+    complianceRepository.webFacts(db, orgId),
+    complianceRepository.workforceFacts(db, orgId, utcDay(now)),
+    complianceRepository.approvedPolicyCodes(db, orgId),
+    programRepository.latest(db, orgId),
   ]);
+  const approvedCodes = new Set(approved);
   return {
     ...base,
     now,
@@ -76,6 +94,13 @@ async function facts(orgId: string, now: Date): Promise<OrgFacts> {
     contactPublished: !!(org.dpoEmail || org.grievanceEmail),
     sdfDpiaCurrent: !sdfDpiaStatus(org.isSdf, lastAnnual, now).overdue,
     transfers,
+    web: web ?? undefined,
+    workforce: workforce ?? undefined,
+    missingPolicies: program
+      ? requiredPolicies(program.answers)
+          .map((p) => p.code)
+          .filter((code) => !approvedCodes.has(code))
+      : undefined,
     cloud: cloud.connected
       ? {
           connected: cloud.connected,
@@ -216,9 +241,7 @@ export const complianceService = {
     const catalog = (await catalogService.orgControls(ctx)).filter((c) =>
       wanted.has(`${c.framework}|${c.code}`),
     );
-    const needFacts = catalog.some((c) =>
-      Object.hasOwn(automaticChecks, c.code),
-    );
+    const needFacts = catalog.some((c) => hasChecks(c.code));
     const [settings, evidence, f] = await Promise.all([
       complianceRepository.listSettings(db, ctx.org.orgId),
       complianceRepository.listEvidence(db, ctx.org.orgId),
@@ -430,14 +453,15 @@ export const complianceService = {
    * Worker (daily): owners get one email listing evidence expiring within 14 days and
    * controls whose periodic review is overdue.
    */
-  async reviewDigest(tx: Tx, now = new Date()) {
+  async reviewDigest(day: string, now = new Date(), lease?: Lease) {
+    const run = digestRun();
     const [expiring, overdue] = await Promise.all([
       complianceRepository.expiringAccepted(
-        tx,
+        db,
         now,
         addDays(now, EXPIRY_WARNING_DAYS),
       ),
-      complianceRepository.reviewsOverdue(tx, now),
+      complianceRepository.reviewsOverdue(db, now),
     ]);
     const byOwner = new Map<
       string,
@@ -463,28 +487,38 @@ export const complianceService = {
       );
     for (const r of overdue)
       add(r, `- ${r.controlCode}: periodic review overdue`);
-    const messages: MailMessage[] = [...byOwner].map(([k, v]) => ({
-      to: k.split("|")[1]!,
-      subject: `${v.orgName}: ${v.lines.length} control item(s) need attention`,
-      text: [
-        "Controls you own need attention:",
-        "",
-        ...v.lines,
-        "",
-        `Open them: ${env.APP_URL}/orgs/${v.orgId}/controls`,
-      ].join("\n"),
-    }));
-    for (const m of messages) await mailer.send(m);
+    const byOrg = new Map<string, MailMessage[]>();
+    for (const [k, v] of byOwner) {
+      const list = byOrg.get(v.orgId) ?? [];
+      byOrg.set(v.orgId, list);
+      list.push({
+        to: k.split("|")[1]!,
+        subject: `${v.orgName}: ${v.lines.length} control item(s) need attention`,
+        text: [
+          "Controls you own need attention:",
+          "",
+          ...v.lines,
+          "",
+          `Open them: ${env.APP_URL}/orgs/${v.orgId}/controls`,
+        ].join("\n"),
+      });
+    }
+    let sent = 0;
+    for (const [orgId, list] of byOrg) {
+      if (lease && !(await lease.renew())) break;
+      sent += await run.send(orgId, "controls.review_digest", day, list);
+    }
+    run.finish();
     logger.info(
       {
-        emails: messages.length,
+        emails: sent,
         expiring: expiring.length,
         overdue: overdue.length,
       },
       "Control review digest sent",
     );
     return {
-      emails: messages.length,
+      emails: sent,
       expiring: expiring.length,
       reviewsOverdue: overdue.length,
     };

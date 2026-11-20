@@ -21,7 +21,11 @@ import { assertPermission } from "../domain/permissions.ts";
 import { integrationsRepository } from "../repositories/integrations.repository.ts";
 import { auditService } from "./audit.service.ts";
 import { inventoryProvider } from "./cloud-inventory.ts";
-import { credentialVault, VAULT_KEY_VERSION } from "./credential-vault.ts";
+import {
+  credentialVault,
+  VAULT_AAD,
+  VAULT_KEY_VERSION,
+} from "./credential-vault.ts";
 import { queueService } from "./queue.service.ts";
 
 /**
@@ -31,7 +35,7 @@ import { queueService } from "./queue.service.ts";
  * (cross-account role + our external ID).
  */
 
-const aad = (orgId: string, id: string) => `integration:${orgId}:${id}`;
+const aad = VAULT_AAD.integration;
 const WORKER: Actor = { type: "system", id: "system:worker" };
 type Page = { limit: number; offset: number };
 
