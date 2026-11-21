@@ -1,5 +1,7 @@
 # HoundDog.ai → DPDPA platform (customer CI setup)
 
+> Every JSON response is wrapped: `{ "status": 200, "detail": "OK", "data": … }` on success, `{ "status": 4xx, "error": { "code", "message", "issues"? } }` on errors. The fields named below are inside `data`.
+
 Your source code never leaves your CI. HoundDog scans it there; only the SARIF
 result is sent to the platform, which keeps a personal-data inventory and findings
 per repository. The raw SARIF is not stored.
@@ -52,7 +54,7 @@ jobs:
               -H "Authorization: Bearer $DPDPA_API_KEY" -H "Content-Type: application/json" \
               --data-binary @- -o result.json
           cat result.json
-          echo "new_high=$(jq .stats.newHighFindings result.json)" >> "$GITHUB_OUTPUT"
+          echo "new_high=$(jq .data.stats.newHighFindings result.json)" >> "$GITHUB_OUTPUT"
 
       - name: Fail PR on new high-severity personal-data flows
         if: github.event_name == 'pull_request' && steps.upload.outputs.new_high != '0'
@@ -67,7 +69,7 @@ jobs:
 |---|---|
 | Default branch (or no `branch`) | Baseline: updates data elements, data flows and findings (new → open, gone → resolved, back → reopened). Human decisions (`accepted_risk`, `false_positive`, `in_progress`) are never overridden. |
 | Any other branch (PR) | Recorded as a scan; `stats.newFindings` / `stats.newHighFindings` compare against the baseline. Nothing in the inventory changes. |
-| Same file, same commit | Idempotent: returns the earlier run (`replayed: true`). |
+| Same file, same commit | Idempotent: returns the earlier run (`data.replayed: true`). |
 
 Limits: 10 MB request, 60 uploads per key per 15 minutes.
 

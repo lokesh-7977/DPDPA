@@ -8,7 +8,7 @@ import { publicReadLimit } from "./middleware/rate-limit.ts";
 import { env } from "../config/env.ts";
 import { errorHandler } from "./error-handler.ts";
 import { requestLogger } from "./middleware/request-logger.ts";
-import { createRouter } from "./openapi.ts";
+import { createRouter, envelopeDocument } from "./openapi.ts";
 import { aiRoutes } from "./routes/ai.routes.ts";
 import { apiKeysRoutes } from "./routes/api-keys.routes.ts";
 import { breachRoutes } from "./routes/breach.routes.ts";
@@ -61,6 +61,7 @@ import {
 } from "./routes/transfers.routes.ts";
 import { ropaRoutes } from "./routes/ropa.routes.ts";
 import { dbScope } from "../services/db-scope.service.ts";
+import { envelope } from "./middleware/envelope.ts";
 import { publicOrgScope } from "./middleware/org-scope.ts";
 
 const base = createRouter();
@@ -69,6 +70,8 @@ const base = createRouter();
 // Row-level security: requests run as the app role across organizations until an org
 // middleware narrows them to one organization: orgAccess, tenantAccess, apiKeyOrgScope (CI,
 // integrations), authenticateAuditor, MCP, and publicOrgScope (public slug routes, below).
+// Outermost: every JSON response (errors from later middleware included) gets the envelope.
+base.use("*", envelope);
 base.use("*", (_c, next) => dbScope.system(next));
 base.use("*", requestId());
 base.use("*", requestLogger);
@@ -92,8 +95,19 @@ const usesSessionCookie = (path: string) =>
   path.startsWith("/auth/") ||
   path === "/invitations/accept" ||
   /^\/orgs\/[^/]+\/github\/install-link$/.test(path);
-const apiCors = cors({ origin: env.CORS_ORIGINS });
-const cookieCors = cors({ origin: env.CORS_ORIGINS, credentials: true });
+const exposeHeaders = [
+  "X-Envelope",
+  "Content-Disposition",
+  "X-Content-SHA256",
+  "X-Request-Id",
+  "Retry-After",
+];
+const apiCors = cors({ origin: env.CORS_ORIGINS, exposeHeaders });
+const cookieCors = cors({
+  origin: env.CORS_ORIGINS,
+  credentials: true,
+  exposeHeaders,
+});
 base.use("*", (c, next) =>
   (usesSessionCookie(c.req.path) ? cookieCors : apiCors)(c, next),
 );
@@ -197,16 +211,23 @@ routes.route("/mcp", mcpRoutes);
 // GitHub install redirect + signed webhooks (step 17); outside the typed chain too.
 routes.route("/", githubPublicRoutes);
 
-routes.doc31("/openapi.json", {
-  openapi: "3.1.0",
-  info: {
-    title: "DPDPA Compliance Platform API",
-    version: "0.1.0",
-    description:
-      "Consent records, data principals and append-only audit trail for India's DPDP Act, 2023. " +
-      "AI assistants connect to the read-only MCP server at POST /mcp (see docs/integrations/mcp.md).",
-  },
-});
+// The published spec describes the response envelope (middleware/envelope.ts).
+routes.get("/openapi.json", (c) =>
+  c.json(
+    envelopeDocument(
+      routes.getOpenAPI31Document({
+        openapi: "3.1.0",
+        info: {
+          title: "DPDPA Compliance Platform API",
+          version: "0.1.0",
+          description:
+            "Consent records, data principals and append-only audit trail for India's DPDP Act, 2023. " +
+            "AI assistants connect to the read-only MCP server at POST /mcp (see docs/integrations/mcp.md).",
+        },
+      }),
+    ),
+  ),
+);
 routes.get("/docs", Scalar({ url: "/openapi.json", pageTitle: "DPDPA API" }));
 routes.get("/", (c) =>
   c.json({ name: "dpdpa-api", status: "ok", docs: "/docs" }),
@@ -218,3 +239,5 @@ routes.onError(errorHandler);
 export const app = routes;
 /** Imported (type-only) by apps/web for the end-to-end typed RPC client. */
 export type AppType = typeof routes;
+/** Error codes in the response envelope (http/middleware/envelope.ts), for typed clients. */
+export type { ApiErrorCode } from "./middleware/envelope.ts";

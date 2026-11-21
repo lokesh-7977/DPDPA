@@ -12,7 +12,7 @@ process.env.GITHUB_WEBHOOK_SECRET = "whsec-test-test-test-test-test-test-1234";
 delete process.env.DATABASE_URL;
 process.env.JWT_SECRET ??= "test-secret-test-secret-test-secret-123";
 
-const { bootTestApp } = await import("./helpers.ts");
+const { bootTestApp, unwrapEnvelope } = await import("./helpers.ts");
 const { sql } = await import("drizzle-orm");
 const { runOnce } = await import("../jobs/runner.ts");
 const { useGithubClient, useCodeScanner } =
@@ -114,7 +114,7 @@ async function installLink(orgId: string, token: string) {
     headers: { Authorization: `Bearer ${token}` },
   });
   const raw = res.headers.get("set-cookie") ?? "";
-  const body = (await res.json()) as { url?: string };
+  const body = unwrapEnvelope(await res.json()) as { url?: string };
   return {
     status: res.status,
     state: body.url ? new URL(body.url).searchParams.get("state")! : "",
@@ -268,7 +268,7 @@ describe("webhooks and scans", () => {
     const again = await webhook("ping", null, { raw, id: "same" });
     assert.equal(again.status, 200);
     assert.equal(
-      ((await again.json()) as { duplicate: boolean }).duplicate,
+      (unwrapEnvelope(await again.json()) as { duplicate: boolean }).duplicate,
       true,
     );
     const big = await webhook("ping", { pad: "x".repeat(200_000) });
