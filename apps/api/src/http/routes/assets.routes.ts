@@ -8,6 +8,7 @@ import {
   CreateRepoAssetSchema,
   DataMapSchema,
   RepoAssetSchema,
+  UpdateRepoAssetSchema,
   toElementDto,
   toFlowDto,
   toRepoAssetDto,
@@ -44,6 +45,23 @@ const createRepoRoute = createRoute({
   },
 });
 
+const updateRepoRoute = createRoute({
+  method: "patch",
+  path: "/{orgId}/assets/{assetId}",
+  tags,
+  summary:
+    "Correct the repository's default (baseline) branch. DPO / admin; not for repositories connected through the GitHub App",
+  security: bearer,
+  middleware: inOrg,
+  request: { params: AssetParams, body: jsonBody(UpdateRepoAssetSchema, "Default branch") },
+  responses: {
+    200: json(RepoAssetSchema, "Updated"),
+    404: json(ErrorSchema, "Not found"),
+    409: json(ErrorSchema, "Managed by the GitHub App"),
+    ...errors,
+  },
+});
+
 const dataMapRoute = createRoute({
   method: "get",
   path: "/{orgId}/assets/{assetId}/data-map",
@@ -63,6 +81,14 @@ export const assetsRoutes = createRouter()
   .openapi(createRepoRoute, async (c) => {
     const asset = await assetsService.createRepo(orgContext(c), c.req.valid("json"));
     return c.json(toRepoAssetDto(asset), 201);
+  })
+  .openapi(updateRepoRoute, async (c) => {
+    const asset = await assetsService.updateDefaultBranch(
+      orgContext(c),
+      c.req.valid("param").assetId,
+      c.req.valid("json").defaultBranch,
+    );
+    return c.json(toRepoAssetDto(asset), 200);
   })
   .openapi(dataMapRoute, async (c) => {
     const map = await assetsService.dataMap(orgContext(c), c.req.valid("param").assetId);

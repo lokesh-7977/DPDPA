@@ -60,6 +60,12 @@ export function createGithubRestClient(deps: {
 
   const ok = (r: Reply) => {
     if (r.status >= 200 && r.status < 300) return r.text;
+    if (
+      r.status === 429 ||
+      (r.status === 403 &&
+        (r.headers.get("x-ratelimit-remaining") === "0" || r.headers.has("retry-after")))
+    )
+      throw new AdapterError("GithubRateLimited");
     if (r.status === 404) throw new AdapterError("GithubNotFound");
     if (r.status === 401 || r.status === 403) throw new AdapterError("GithubAccessDenied");
     throw new AdapterError("GithubRequestFailed");

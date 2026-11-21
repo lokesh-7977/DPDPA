@@ -1,8 +1,9 @@
 /**
  * Step 15 — cloud (AWS) and Google Workspace inventory: pure validation, region → country and
  * findings. Read-only facts about where personal data is stored and how it is protected.
- * Citations: s.8(5) and r.6 (reasonable security safeguards; clause letters TO VERIFY against
- * G.S.R. 846(E)), s.16 / r.15 (processing outside India).
+ * Citations: s.8(5) and r.6(1) (reasonable security safeguards; clause letters checked against the
+ * Gazette text of G.S.R. 846(E), 13 Nov 2025: (a) encryption / masking, (b) access control,
+ * (c) logs and monitoring, (d) continued processing / backups), s.16 / r.15 (outside India).
  */
 
 export const integrationKinds = ["aws", "google_workspace"] as const;
@@ -37,6 +38,8 @@ export type WorkspaceInventory = {
   twoStepEnforced: boolean | null;
   /** Drive sharing outside the domain: off, only allow-listed domains, or open. */
   externalDriveSharing: "off" | "allowlist" | "on" | null;
+  /** More users than one sync reads: the counts cover only the first part of the directory. */
+  usersTruncated?: boolean;
 };
 
 export type AwsConfig = {
@@ -197,6 +200,11 @@ export type CloudFinding = {
 };
 
 const SEC = "DPDPA s.8(5); DPDP Rules r.6";
+/** r.6(1) clause by safeguard. */
+const SEC_ENCRYPTION = "DPDPA s.8(5); DPDP Rules r.6(1)(a)";
+const SEC_ACCESS = "DPDPA s.8(5); DPDP Rules r.6(1)(b)";
+const SEC_LOGS = "DPDPA s.8(5); DPDP Rules r.6(1)(c)";
+const SEC_BACKUP = "DPDPA s.8(5); DPDP Rules r.6(1)(d)";
 const XB = "DPDPA s.16; DPDP Rules r.15";
 
 export function storeFindings(stores: StoreObservation[]): CloudFinding[] {
@@ -208,7 +216,7 @@ export function storeFindings(stores: StoreObservation[]): CloudFinding[] {
         code: "CLOUD-STORE-PUBLIC",
         severity: "critical",
         resource,
-        citation: SEC,
+        citation: SEC_ACCESS,
         message: "Data store is publicly accessible",
       });
     if (s.encrypted === false)
@@ -216,7 +224,7 @@ export function storeFindings(stores: StoreObservation[]): CloudFinding[] {
         code: "CLOUD-STORE-UNENCRYPTED",
         severity: "high",
         resource,
-        citation: SEC,
+        citation: SEC_ENCRYPTION,
         message: "Data store is not encrypted at rest",
       });
     if (s.backups === false)
@@ -224,7 +232,7 @@ export function storeFindings(stores: StoreObservation[]): CloudFinding[] {
         code: "CLOUD-STORE-NO-BACKUP",
         severity: "medium",
         resource,
-        citation: SEC,
+        citation: SEC_BACKUP,
         message: "No backups: personal data could be lost",
       });
     if (s.logging === false)
@@ -232,7 +240,7 @@ export function storeFindings(stores: StoreObservation[]): CloudFinding[] {
         code: "CLOUD-STORE-NO-LOGGING",
         severity: "medium",
         resource,
-        citation: SEC,
+        citation: SEC_LOGS,
         message: "Access to the data store is not logged",
       });
     const country = regionCountry(s.region);
@@ -264,24 +272,32 @@ export function workspaceFindings(w: WorkspaceInventory): CloudFinding[] {
       code: "GWS-ADMIN-NO-2SV",
       severity: "critical",
       resource,
-      citation: SEC,
-      message: `${w.adminsWithout2sv} administrator(s) without 2-step verification`,
+      citation: SEC_ACCESS,
+      message: `${w.usersTruncated ? "At least " : ""}${w.adminsWithout2sv} administrator(s) without 2-step verification`,
     });
   if (w.usersWithout2sv > 0)
     out.push({
       code: "GWS-USERS-NO-2SV",
       severity: w.twoStepEnforced ? "medium" : "high",
       resource,
-      citation: SEC,
-      message: `${w.usersWithout2sv} of ${w.users} user(s) without 2-step verification${w.twoStepEnforced === false ? " (not enforced)" : ""}`,
+      citation: SEC_ACCESS,
+      message: `${w.usersTruncated ? "At least " : ""}${w.usersWithout2sv} of ${w.usersTruncated ? "the first " : ""}${w.users} active user(s) without 2-step verification${w.twoStepEnforced === false ? " (not enforced)" : ""}`,
     });
   if (w.externalDriveSharing === "on")
     out.push({
       code: "GWS-DRIVE-EXTERNAL",
       severity: "medium",
       resource,
-      citation: SEC,
+      citation: SEC_ACCESS,
       message: "Drive files can be shared with anyone outside the organization",
+    });
+  if (w.usersTruncated)
+    out.push({
+      code: "GWS-INVENTORY-TRUNCATED",
+      severity: "low",
+      resource,
+      citation: SEC,
+      message: "The directory is larger than one sync reads: 2-step verification counts cover only part of it",
     });
   return out;
 }

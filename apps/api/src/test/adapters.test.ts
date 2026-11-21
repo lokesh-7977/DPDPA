@@ -372,6 +372,35 @@ describe("Google Workspace adapter", () => {
     assert.ok(!calls.some((c) => c.url.hostname === "evil.test"), "token_uri in the key ignored");
   });
 
+  test("a directory larger than one sync reads is marked truncated", async () => {
+    const { fetch } = fakeFetch((c) =>
+      c.url.hostname === "oauth2.googleapis.com"
+        ? json(200, { access_token: "t" })
+        : c.url.pathname === "/v1/policies"
+          ? json(200, { policies: [] })
+          : json(200, { users: [{ isEnrolledIn2Sv: true }], nextPageToken: "more" }),
+    );
+    const inv = await createWorkspaceInventory({ fetch, now })(cfg, key);
+    assert.equal(inv.usersTruncated, true);
+    assert.equal(inv.users, 200, "200 pages read, then stopped");
+    const { workspaceFindings } = await import("../domain/cloud-inventory.ts");
+    assert.ok(workspaceFindings(inv).some((f) => f.code === "GWS-INVENTORY-TRUNCATED"));
+
+    // A partial read can't support a pass of the security control.
+    const { automaticChecks } = await import("../domain/compliance.ts");
+    const facts = (incomplete: number) =>
+      ({
+        now: new Date(),
+        lastBaselineScanAt: new Date(),
+        openFindings: { highOrCritical: 0, inLogs: 0 },
+        cloud: { connected: 1, criticalOrHigh: 0, uncoveredCountries: [], stale: 0, incomplete },
+      }) as unknown as Parameters<(typeof automaticChecks)[string]>[0];
+    assert.equal(automaticChecks["DPDP-SEC-01"]!(facts(0)).result, "pass");
+    const partial = automaticChecks["DPDP-SEC-01"]!(facts(1));
+    assert.equal(partial.result, "not_determined");
+    assert.match(partial.reason, /in part/);
+  });
+
   test("auth refusal fails the sync; Policy API refusal leaves settings unknown", async () => {
     const bad = fakeFetch(() => json(400, { error: "unauthorized_client" }));
     await assert.rejects(createWorkspaceInventory({ fetch: bad.fetch, now })(cfg, key), {
@@ -475,8 +504,18 @@ describe("GitHub REST client", () => {
     assert.equal(await createGithubRestClient({ ...base, fetch: badCode.fetch }).installerControls("the-code", 7), false);
   });
 
-  test("unknown installation → GithubNotFound", async () => {
+  test("unknown installation → GithubNotFound; rate limit → GithubRateLimited", async () => {
     const { fetch } = fakeFetch(() => json(404, { message: "Not Found" }));
     await assert.rejects(createGithubRestClient({ ...base, fetch }).installation(1), { name: "GithubNotFound" });
+    const limited = fakeFetch(
+      () => new Response("{}", { status: 403, headers: { "x-ratelimit-remaining": "0" } }),
+    );
+    await assert.rejects(createGithubRestClient({ ...base, fetch: limited.fetch }).installation(1), {
+      name: "GithubRateLimited",
+    });
+    const denied = fakeFetch(() => json(403, { message: "Forbidden" }));
+    await assert.rejects(createGithubRestClient({ ...base, fetch: denied.fetch }).installation(1), {
+      name: "GithubAccessDenied",
+    });
   });
 });

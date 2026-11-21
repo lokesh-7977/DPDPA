@@ -1,6 +1,11 @@
 import { z } from "@hono/zod-openapi";
 import type { CodeScanDetail, ScanRun } from "../../../db/schemas/index.ts";
-import { BranchSchema, RepoFullNameSchema, RepoProviderSchema } from "../assets/index.ts";
+import {
+  BranchSchema,
+  DefaultBranchSchema,
+  RepoFullNameSchema,
+  RepoProviderSchema,
+} from "../assets/index.ts";
 
 export const SarifUploadSchema = z
   .object({
@@ -11,9 +16,7 @@ export const SarifUploadSchema = z
       .regex(/^[0-9a-f]{7,64}$/i, "git commit sha")
       .openapi({ example: "781c916790f5f99150244ab4e9942c13a563d2c3" }),
     branch: BranchSchema.optional().openapi({ description: "Omit or set to the default branch for a baseline scan" }),
-    defaultBranch: BranchSchema.refine((b) => b !== "HEAD" && !b.startsWith("refs/"), "a branch name (not HEAD or refs/...)")
-      .optional()
-      .openapi({
+    defaultBranch: DefaultBranchSchema.optional().openapi({
       description:
         "The repository's default branch as the CI knows it (e.g. main). Used when this upload creates the repository's record, so a pull request uploaded first never becomes the baseline; ignored afterwards. Recommended.",
       example: "main",

@@ -1,5 +1,11 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
-import { assets, repoAssets, type Executor } from "../db/index.ts";
+import { and, asc, eq, isNull, ne, or } from "drizzle-orm";
+import {
+  assets,
+  githubInstallations,
+  githubRepos,
+  repoAssets,
+  type Executor,
+} from "../db/index.ts";
 
 export type RepoProvider = (typeof repoAssets.provider.enumValues)[number];
 
@@ -15,6 +21,47 @@ const repoColumns = {
 };
 
 export const assetsRepository = {
+  /**
+   * The GitHub App still owns this asset's default branch: a repository with scanning on, in an
+   * installation that wasn't removed, under its current name or the name its results were
+   * recorded as (between a rename on GitHub and the next scan).
+   */
+  async isGithubAppRepo(ex: Executor, orgId: string, fullName: string) {
+    const [row] = await ex
+      .select({ id: githubRepos.id })
+      .from(githubRepos)
+      .innerJoin(
+        githubInstallations,
+        and(
+          eq(githubInstallations.orgId, githubRepos.orgId),
+          eq(githubInstallations.id, githubRepos.installationRef),
+        ),
+      )
+      .where(
+        and(
+          eq(githubRepos.orgId, orgId),
+          eq(githubRepos.enabled, true),
+          ne(githubInstallations.status, "removed"),
+          or(eq(githubRepos.fullName, fullName), eq(githubRepos.ingestedAs, fullName)),
+        ),
+      )
+      .limit(1);
+    return !!row;
+  },
+
+  /** A live (not archived) repository asset, row-locked for an update in this transaction. */
+  async findRepoByIdForUpdate(ex: Executor, orgId: string, assetId: string) {
+    const [row] = await ex
+      .select(repoColumns)
+      .from(repoAssets)
+      .innerJoin(assets, eq(repoAssets.assetId, assets.id))
+      .where(
+        and(eq(assets.orgId, orgId), eq(assets.id, assetId), isNull(assets.archivedAt)),
+      )
+      .for("update", { of: repoAssets });
+    return row ?? null;
+  },
+
   async findRepo(
     ex: Executor,
     orgId: string,

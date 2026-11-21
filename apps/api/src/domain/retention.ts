@@ -26,9 +26,13 @@ export type ThirdScheduleClass = (typeof thirdScheduleClasses)[number];
 /** Third Schedule, items 1-3 (column 4): three years. */
 export const INACTIVITY_YEARS = 3;
 /**
- * "…or the commencement of the Digital Personal Data Protection Rules, 2025". Taken as the date
- * rule 8 itself comes into force (rule 1(4): eighteen months after publication). TO VERIFY: it
- * could be read as the Rules' first commencement (13 Nov 2025).
+ * Third Schedule (Gazette text of G.S.R. 846(E), checked): "Three years from the date on which the
+ * Data Principal last approached the Data Fiduciary … or the commencement of the Digital Personal
+ * Data Protection Rules, 2025, whichever is latest." The Rules commence in stages (rule 1(2)-(4));
+ * this takes the date rule 8, which applies the Third Schedule, comes into force (rule 1(4):
+ * eighteen months after publication). The other reading (13 Nov 2025, rule 1(2)) would allow
+ * erasure 18 months earlier; erasure can't be undone, so the later date is kept until a legal
+ * opinion says otherwise.
  */
 export const RULE_8_COMMENCEMENT = "2027-05-13";
 /** r.8(3): minimum retention of personal data and logs after processing. */
