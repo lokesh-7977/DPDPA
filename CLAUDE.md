@@ -61,23 +61,32 @@ apps/
   web/            Next.js app (port 3000) — lib/api.ts is the typed API client
   docs/           Next.js docs app (port 3001, template)
   api/            Hono API (port 3002)
+    catalog/        compliance catalog content (JSON per framework + detection-rules)
     drizzle/        SQL migrations (0001 = append-only audit trigger)
     src/
-      config/       env validation (zod)
+      index.ts      API entry; worker.ts = job worker entry
+      config/       env validation (zod), logger
       domain/       pure: types, DomainError, policies, audit hash chain
-      db/           index.ts (barrel: client + all tables), client.ts, migrate.ts
+      db/           index.ts (barrel: client + all tables), client.ts, scope.ts (RLS), migrate.ts
         schemas/    one folder per module: <module>/index.ts (_shared, consent, audit-log, …); schemas/index.ts re-exports all
       repositories/ Drizzle queries only (take Executor = db | tx)
-      services/     business rules, transactions, audit recording
+      services/     business rules, transactions, audit recording; ports / clients (mailer, fetchers, vault, github-client)
+        adapters/   real external adapters (AWS, Google Workspace, GitHub REST)
+        storage/    blob store (fs / memory)
+      jobs/         queue handlers + runner (jobs → services only)
       http/         app.ts, routes/, schemas/<resource>/index.ts (DTOs), middleware/, error-handler
-      test/         e2e tests (in-memory PGlite)
+      scripts/      CLI scripts (create-super-admin, seed-catalog, rotate-vault-key); console allowed
+      test/         e2e tests (in-memory PGlite), helpers.ts, fixtures/
 packages/
   ui/               shared React components
   eslint-config/    shared ESLint flat configs
   typescript-config/ shared tsconfigs
 docs/
+  features.md       feature map + end-to-end flows (keep in sync when a module is added)
   plans/            implementation plans (superpowers writing-plans output)
   health/           codebase-health reports (YYYY-MM-DD.md)
+  integrations/     customer guides (hounddog-ci, cloud, github-app, mcp)
+  operations.md     ops runbook (RLS roles, vault rotation, health, rate limits)
 ```
 
 ## Commands
@@ -89,20 +98,24 @@ Run from repo root. Root scripts fan out via turbo; `--filter` targets one works
 | Dev | `pnpm --filter web dev` | `pnpm --filter api dev` | `pnpm dev` |
 | Lint | `pnpm --filter web lint` | `pnpm --filter api lint` | `pnpm lint` |
 | Typecheck | `pnpm --filter web check-types` | `pnpm --filter api check-types` | `pnpm check-types` |
+| Format | — | — | `pnpm format` (prettier, `ts/tsx/md`) |
 | Test | _none yet_ | `pnpm --filter api test` | — |
 | Build | `pnpm --filter web build` | `pnpm --filter api build` | `pnpm build` |
-| Worker | — | `pnpm --filter api worker` (prod: `start:worker`) | — |
+| Start (prod, after build) | `pnpm --filter web start` | `pnpm --filter api start` | — |
+| Worker | — | `pnpm --filter api worker` (prod: `pnpm --filter api start:worker`) | — |
 | DB migrate | — | `pnpm --filter api db:migrate` | — |
-| Seed compliance catalog | — | `pnpm --filter api seed:catalog` (after migrate) | — |
 | New migration | — | `pnpm --filter api db:generate` | — |
+| DB browser | — | `pnpm --filter api db:studio` (drizzle-kit studio) | — |
+| Seed compliance catalog | — | `pnpm --filter api seed:catalog` (after migrate) | — |
 | Create super admin | — | `pnpm --filter api create-super-admin <email> "<Name>"` (password prompted or `SUPER_ADMIN_PASSWORD`) | — |
+| Rotate vault key | — | `pnpm --filter api rotate-vault-key` (runbook `docs/operations.md`) | — |
 | Audit deps | — | — | `pnpm audit` |
 
-Same for `docs` and `@repo/ui` (`lint`, `check-types`).
+`docs` app: same `dev` (port 3001) / `build` / `start` / `lint` / `check-types`. `@repo/ui`: `lint`, `check-types`, `generate:component` (turbo generator).
 
 ## Conventions
 
-- **Backend layering is enforced by ESLint** (`apps/api/eslint.config.js`): `http → services → repositories → db`; `domain` imports nothing above it. Services throw `DomainError`, never `HTTPException`. Routes never touch Drizzle.
+- **Backend layering is enforced by ESLint** (`apps/api/eslint.config.ts`): `http → services → repositories → db`; `domain` imports nothing above it. Services throw `DomainError`, never `HTTPException`. Routes never touch Drizzle.
 - Every state change: one service-owned transaction that also calls `auditService.record(tx, …)`.
 - **Audit payloads never contain PII** (trail must survive erasure). `audit_log` is append-only (DB trigger) and hash-chained.
 - Validation at the boundary with Zod schemas in `http/schemas/`; map entities to DTOs there (dates → ISO strings). Return plain data / throw `DomainError`: the envelope middleware wraps every JSON response; never hand-build `{ status, data }` in a route.
