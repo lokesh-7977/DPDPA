@@ -1,14 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import type {
-  LibraryAnswer,
-  Questionnaire,
-  QuestionnaireItem,
-} from "../../db/schemas/index.ts";
-import {
-  answerTopics,
-  MAX_CSV_CHARS,
-  MAX_QUESTIONS,
-} from "../../domain/questionnaires.ts";
+import { MAX_CSV_CHARS, MAX_QUESTIONS } from "../../domain/questionnaires.ts";
 import { questionnairesService } from "../../services/questionnaires.service.ts";
 import { orgContext } from "../context.ts";
 import { uploadLimit } from "../middleware/rate-limit.ts";
@@ -21,8 +12,22 @@ import {
   json,
   jsonBody,
 } from "../openapi.ts";
+import { Plain } from "../schemas/_shared/index.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
 import { PageFields, PageQuery } from "../schemas/paging/index.ts";
+import {
+  Text,
+  AnswerSchema,
+  toAnswerDto,
+  QuestionnaireSchema,
+  toQDto,
+  ItemSchema,
+  toItemDto,
+  AnswerFields,
+  AnswerParams,
+  QParams,
+  ItemParams,
+} from "../schemas/questionnaires/index.ts";
 
 /** Phase 9f part 2 — answer library and questionnaire answering. */
 const base = {
@@ -33,118 +38,6 @@ const base = {
 const notFound = json(ErrorSchema, "Not found");
 const conflict = json(ErrorSchema, "Wrong state");
 const unprocessable = json(ErrorSchema, "Unprocessable");
-
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
-const Text = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^(?:[^\p{Cc}\p{Cf}]|[\n\r\t])*$/u,
-      "must not contain control or invisible characters",
-    );
-const iso = (d: Date | null) => d?.toISOString() ?? null;
-
-const AnswerSchema = z
-  .object({
-    id: z.uuid(),
-    topic: z.enum(answerTopics),
-    question: z.string(),
-    answer: z.string(),
-    keywords: z.array(z.string()),
-    standardKey: z.string().nullable(),
-    status: z.enum(["draft", "approved"]),
-    approvedBy: z.uuid().nullable(),
-    approvedAt: z.iso.datetime().nullable(),
-    updatedAt: z.iso.datetime(),
-  })
-  .openapi("LibraryAnswer");
-const toAnswerDto = (a: LibraryAnswer) => ({
-  id: a.id,
-  topic: a.topic,
-  question: a.question,
-  answer: a.answer,
-  keywords: a.keywords,
-  standardKey: a.standardKey,
-  status: a.status,
-  approvedBy: a.approvedBy,
-  approvedAt: iso(a.approvedAt),
-  updatedAt: a.updatedAt.toISOString(),
-});
-
-const QuestionnaireSchema = z
-  .object({
-    id: z.uuid(),
-    name: z.string(),
-    requester: z.string().nullable(),
-    dueDate: z.string().nullable(),
-    status: z.enum(["open", "completed"]),
-    completedAt: z.iso.datetime().nullable(),
-    createdAt: z.iso.datetime(),
-  })
-  .openapi("Questionnaire");
-const toQDto = (q: Questionnaire) => ({
-  id: q.id,
-  name: q.name,
-  requester: q.requester,
-  dueDate: q.dueDate,
-  status: q.status,
-  completedAt: iso(q.completedAt),
-  createdAt: q.createdAt.toISOString(),
-});
-const ItemSchema = z
-  .object({
-    id: z.uuid(),
-    number: z.number().int(),
-    question: z.string(),
-    matchedAnswerId: z.uuid().nullable(),
-    matchScore: z.number().nullable(),
-    answer: z.string().nullable(),
-    status: z.enum(["suggested", "needs_answer", "answered"]),
-    answeredAt: z.iso.datetime().nullable(),
-  })
-  .openapi("QuestionnaireItem");
-const toItemDto = (i: QuestionnaireItem) => ({
-  id: i.id,
-  number: i.position + 1,
-  question: i.question,
-  matchedAnswerId: i.matchedAnswerId,
-  matchScore: i.matchScore,
-  answer: i.answer,
-  status: i.status,
-  answeredAt: iso(i.answeredAt),
-});
-
-const AnswerFields = {
-  topic: z.enum(answerTopics),
-  question: Plain(500),
-  answer: Text(5000),
-  keywords: z.array(Plain(60)).max(20).optional(),
-};
-const AnswerParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  answerId: z.uuid().openapi({ param: { name: "answerId", in: "path" } }),
-});
-const QParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  questionnaireId: z
-    .uuid()
-    .openapi({ param: { name: "questionnaireId", in: "path" } }),
-});
-const ItemParams = QParams.extend({
-  itemId: z.uuid().openapi({ param: { name: "itemId", in: "path" } }),
-});
 
 const listAnswers = createRoute({
   ...base,

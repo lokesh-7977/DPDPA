@@ -2,7 +2,6 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { env } from "../../config/env.ts";
-import type { GithubInstallation, GithubRepo } from "../../db/schemas/index.ts";
 import { githubService } from "../../services/github.service.ts";
 import { orgContext } from "../context.ts";
 import type { AppEnv } from "../middleware/auth.ts";
@@ -20,6 +19,16 @@ import {
   json,
   jsonBody,
 } from "../openapi.ts";
+import {
+  InstallationSchema,
+  RepoSchema,
+  toInstallation,
+  toRepo,
+  OrgParams,
+  RepoParams,
+} from "../schemas/github/index.ts";
+
+const INSTALL_COOKIE = "dpdpa_gh_install";
 
 /** Step 17 — GitHub App for managed HoundDog scans (guide: docs/integrations/github-app.md). */
 const base = {
@@ -28,63 +37,8 @@ const base = {
   middleware: [authenticateUser, orgAccess],
 };
 const notFound = json(ErrorSchema, "Not found");
-const INSTALL_COOKIE = "dpdpa_gh_install";
+
 const conflict = json(ErrorSchema, "Wrong state");
-
-const InstallationSchema = z
-  .object({
-    id: z.uuid(),
-    installationId: z.number().int(),
-    accountLogin: z.string(),
-    accountType: z.string(),
-    status: z.enum(["active", "suspended", "removed"]),
-    createdAt: z.iso.datetime(),
-    removedAt: z.iso.datetime().nullable(),
-  })
-  .openapi("GithubInstallation");
-const RepoSchema = z
-  .object({
-    id: z.uuid(),
-    installationRef: z.uuid(),
-    fullName: z.string(),
-    defaultBranch: z.string().nullable(),
-    private: z.boolean().nullable(),
-    enabled: z.boolean(),
-    lastScanAt: z.iso.datetime().nullable(),
-    lastScanStatus: z.enum(["succeeded", "failed"]).nullable(),
-    lastScanError: z.string().nullable(),
-    lastCommitSha: z.string().nullable(),
-  })
-  .openapi("GithubRepository");
-
-const toInstallation = (i: GithubInstallation) => ({
-  id: i.id,
-  installationId: i.installationId,
-  accountLogin: i.accountLogin,
-  accountType: i.accountType,
-  status: i.status,
-  createdAt: i.createdAt.toISOString(),
-  removedAt: i.removedAt?.toISOString() ?? null,
-});
-const toRepo = (r: GithubRepo) => ({
-  id: r.id,
-  installationRef: r.installationRef,
-  fullName: r.fullName,
-  defaultBranch: r.defaultBranch,
-  private: r.private,
-  enabled: r.enabled,
-  lastScanAt: r.lastScanAt?.toISOString() ?? null,
-  lastScanStatus: r.lastScanStatus,
-  lastScanError: r.lastScanError,
-  lastCommitSha: r.lastCommitSha,
-});
-
-const OrgParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-});
-const RepoParams = OrgParams.extend({
-  repoId: z.uuid().openapi({ param: { name: "repoId", in: "path" } }),
-});
 
 const viewRoute = createRoute({
   ...base,

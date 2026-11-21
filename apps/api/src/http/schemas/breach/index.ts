@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { Plain, Prose, iso } from "../_shared/index.ts";
 import type {
   Breach,
   BreachEvidence,
@@ -7,27 +8,6 @@ import type {
 } from "../../../db/schemas/index.ts";
 import { breachSeverities, breachStatuses } from "../../../domain/breach.ts";
 
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
-/** Free text: line breaks allowed, other control / invisible characters not. */
-const Prose = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^(?:[^\p{Cc}\p{Cf}]|[\n\r])*$/u,
-      "must not contain control characters",
-    );
 const Instant = z.iso.datetime({ offset: true }).transform((s) => new Date(s));
 
 export const BreachSeveritySchema = z
@@ -184,8 +164,6 @@ export const BreachParams = z.object({
 export const BreachNoticeParams = BreachParams.extend({
   kind: BoardNoticeKindSchema.openapi({ param: { name: "kind", in: "path" } }),
 });
-
-const iso = (d: Date | null) => d?.toISOString() ?? null;
 
 export const toBreachDto = (b: Breach & { boardReportOverdue: boolean }) => ({
   id: b.id,

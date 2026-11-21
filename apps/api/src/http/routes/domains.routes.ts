@@ -1,5 +1,4 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import type { Domain, ScanAuthorization } from "../../db/schemas/index.ts";
 import {
   scanTypes,
   verificationMethods,
@@ -15,7 +14,18 @@ import {
   json,
   jsonBody,
 } from "../openapi.ts";
+import { Plain } from "../schemas/_shared/index.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
+import {
+  Instant,
+  PathList,
+  DomainSchema,
+  AuthorizationSchema,
+  toDomainDto,
+  toAuthorizationDto,
+  DomainParams,
+  AuthParams,
+} from "../schemas/domains/index.ts";
 
 /** Phase 4a — domain ownership and signed scan authorizations (before any website scan). */
 const base = {
@@ -26,102 +36,6 @@ const base = {
 const notFound = json(ErrorSchema, "Not found");
 const conflict = json(ErrorSchema, "Wrong state");
 const unprocessable = json(ErrorSchema, "Unprocessable");
-
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
-const Instant = z.iso.datetime({ offset: true }).transform((s) => new Date(s));
-const PathList = z.array(z.string().max(300)).max(50);
-
-const DomainSchema = z
-  .object({
-    id: z.uuid(),
-    hostname: z.string(),
-    status: z.enum(["pending", "verified", "lapsed"]),
-    method: z.enum(verificationMethods).nullable(),
-    verifiedAt: z.iso.datetime().nullable(),
-    lastCheckedAt: z.iso.datetime().nullable(),
-    /** What to publish to prove ownership (either one). */
-    instructions: z.object({
-      dns_txt: z.object({
-        name: z.string(),
-        type: z.string(),
-        value: z.string(),
-      }),
-      well_known_file: z.object({ url: z.string(), content: z.string() }),
-    }),
-    createdAt: z.iso.datetime(),
-  })
-  .openapi("Domain");
-
-const AuthorizationSchema = z
-  .object({
-    id: z.uuid(),
-    domainId: z.uuid(),
-    scanTypes: z.array(z.string()),
-    includePaths: z.array(z.string()),
-    excludePaths: z.array(z.string()),
-    windowStart: z.iso.datetime(),
-    windowEnd: z.iso.datetime(),
-    maxRps: z.number().int(),
-    signerName: z.string(),
-    signerTitle: z.string(),
-    termsVersion: z.number().int(),
-    contentSha256: z.string(),
-    signedAt: z.iso.datetime(),
-    status: z.enum(["active", "revoked"]),
-    revokedAt: z.iso.datetime().nullable(),
-  })
-  .openapi("ScanAuthorization");
-
-const iso = (d: Date | null) => d?.toISOString() ?? null;
-const toDomainDto = (
-  d: Domain & { instructions: z.infer<typeof DomainSchema>["instructions"] },
-) => ({
-  id: d.id,
-  hostname: d.hostname,
-  status: d.status,
-  method: d.method,
-  verifiedAt: iso(d.verifiedAt),
-  lastCheckedAt: iso(d.lastCheckedAt),
-  instructions: d.instructions,
-  createdAt: d.createdAt.toISOString(),
-});
-const toAuthorizationDto = (a: ScanAuthorization) => ({
-  id: a.id,
-  domainId: a.domainId,
-  scanTypes: a.scanTypes,
-  includePaths: a.includePaths,
-  excludePaths: a.excludePaths,
-  windowStart: a.windowStart.toISOString(),
-  windowEnd: a.windowEnd.toISOString(),
-  maxRps: a.maxRps,
-  signerName: a.signerName,
-  signerTitle: a.signerTitle,
-  termsVersion: a.termsVersion,
-  contentSha256: a.contentSha256,
-  signedAt: a.signedAt.toISOString(),
-  status: a.status,
-  revokedAt: iso(a.revokedAt),
-});
-
-const DomainParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  domainId: z.uuid().openapi({ param: { name: "domainId", in: "path" } }),
-});
-const AuthParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  authorizationId: z
-    .uuid()
-    .openapi({ param: { name: "authorizationId", in: "path" } }),
-});
 
 const termsRoute = createRoute({
   ...base,
@@ -153,7 +67,8 @@ const addRoute = createRoute({
   ...base,
   method: "post",
   path: "/{orgId}/domains",
-  summary: "Add one of the organization's own websites (org_admin only; public domain names, no IPs or internal hosts)",
+  summary:
+    "Add one of the organization's own websites (org_admin only; public domain names, no IPs or internal hosts)",
   request: {
     params: OrgIdParam,
     body: jsonBody(
@@ -198,7 +113,8 @@ const verifyRoute = createRoute({
   ...base,
   method: "post",
   path: "/{orgId}/domains/{domainId}/verify",
-  summary: "Prove ownership now: DNS TXT record or .well-known file (org_admin only)",
+  summary:
+    "Prove ownership now: DNS TXT record or .well-known file (org_admin only)",
   request: {
     params: DomainParams,
     body: jsonBody(z.object({ method: z.enum(verificationMethods) }), "Method"),

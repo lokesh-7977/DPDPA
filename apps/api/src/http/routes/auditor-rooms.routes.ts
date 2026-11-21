@@ -1,6 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
-import type { AuditorGrant, AuditorRoom } from "../../db/schemas/index.ts";
 import { roomScopes } from "../../domain/auditor-room.ts";
 import { accessReviewsService } from "../../services/access-reviews.service.ts";
 import { auditService } from "../../services/audit.service.ts";
@@ -28,8 +27,40 @@ import {
   json,
   jsonBody,
 } from "../openapi.ts";
+import { iso } from "../schemas/_shared/index.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
 import { PageQuery } from "../schemas/paging/index.ts";
+import {
+  RoomSchema,
+  toRoomDto,
+  GrantSchema,
+  toGrantDto,
+  RoomParams,
+  GrantParams,
+  RoomInfo,
+  RoomControl,
+  toRoomControl,
+  toRoomEvidence,
+  RoomPolicy,
+  RoomRisk,
+  toRoomRisk,
+  RoomAuditEntry,
+  CreateRoomBody,
+  RoomDetailSchema,
+  InviteBody,
+  SessionRequest,
+  SessionSchema,
+  RequestLinkBody,
+  ControlParams,
+  ControlDetailSchema,
+  PolicyVersionParams,
+  PolicyVersionSchema,
+  RiskParams,
+  RiskDetailSchema,
+  AuditVerifySchema,
+  TrainingSummarySchema,
+  AccessReviewsSchema,
+} from "../schemas/auditor-rooms/index.ts";
 
 /** Phase 9f part 3 — auditor rooms. */
 const admin = {
@@ -39,65 +70,6 @@ const admin = {
 };
 const notFound = json(ErrorSchema, "Not found");
 const conflict = json(ErrorSchema, "Wrong state");
-const iso = (d: Date | null) => d?.toISOString() ?? null;
-
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
-
-const RoomSchema = z
-  .object({
-    id: z.uuid(),
-    name: z.string(),
-    scopes: z.array(z.enum(roomScopes)),
-    expiresAt: z.iso.datetime(),
-    createdAt: z.iso.datetime(),
-    revokedAt: z.iso.datetime().nullable(),
-    open: z.boolean(),
-  })
-  .openapi("AuditorRoom");
-const toRoomDto = (r: AuditorRoom) => ({
-  id: r.id,
-  name: r.name,
-  scopes: r.scopes as (typeof roomScopes)[number][],
-  expiresAt: r.expiresAt.toISOString(),
-  createdAt: r.createdAt.toISOString(),
-  revokedAt: iso(r.revokedAt),
-  open: !r.revokedAt && r.expiresAt > new Date(),
-});
-const GrantSchema = z
-  .object({
-    id: z.uuid(),
-    email: z.string(),
-    name: z.string(),
-    lastSignInAt: z.iso.datetime().nullable(),
-    revokedAt: z.iso.datetime().nullable(),
-    createdAt: z.iso.datetime(),
-  })
-  .openapi("AuditorGrant");
-const toGrantDto = (g: AuditorGrant) => ({
-  id: g.id,
-  email: g.email,
-  name: g.name,
-  lastSignInAt: iso(g.lastSignInAt),
-  revokedAt: iso(g.revokedAt),
-  createdAt: g.createdAt.toISOString(),
-});
-
-const RoomParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  roomId: z.uuid().openapi({ param: { name: "roomId", in: "path" } }),
-});
-const GrantParams = RoomParams.extend({
-  grantId: z.uuid().openapi({ param: { name: "grantId", in: "path" } }),
-});
 
 const listRooms = createRoute({
   ...admin,
@@ -114,16 +86,7 @@ const createRoom = createRoute({
   summary: "Open a read-only room for external auditors (org admin; ≤ 90 days)",
   request: {
     params: OrgIdParam,
-    body: jsonBody(
-      z.object({
-        name: Plain(200),
-        scopes: z.array(z.enum(roomScopes)).min(1),
-        expiresAt: z.iso
-          .datetime({ offset: true })
-          .transform((s) => new Date(s)),
-      }),
-      "Room",
-    ),
+    body: jsonBody(CreateRoomBody, "Room"),
   },
   responses: {
     201: json(RoomSchema, "Opened"),
@@ -138,21 +101,7 @@ const getRoom = createRoute({
   summary: "Room with its auditors and what they opened",
   request: { params: RoomParams },
   responses: {
-    200: json(
-      z.object({
-        room: RoomSchema,
-        grants: z.array(GrantSchema),
-        access: z.array(
-          z.object({
-            grantId: z.uuid(),
-            resource: z.string(),
-            resourceId: z.string().nullable(),
-            at: z.iso.datetime(),
-          }),
-        ),
-      }),
-      "Room",
-    ),
+    200: json(RoomDetailSchema, "Room"),
     404: notFound,
     ...errors,
   },
@@ -165,10 +114,7 @@ const invite = createRoute({
     "Invite an auditor by email (org admin); they get a single-use sign-in link",
   request: {
     params: RoomParams,
-    body: jsonBody(
-      z.object({ email: z.email().max(254), name: Plain(200) }),
-      "Auditor",
-    ),
+    body: jsonBody(InviteBody, "Auditor"),
   },
   responses: {
     201: json(GrantSchema, "Invited"),
@@ -299,10 +245,10 @@ export const orgAuditorRoomsRoutes = createRouter()
 //
 // External auditors get explicit, allow-listed shapes only: no user ids, artifact ids,
 // contributor lists, IP / user-agent hashes or internal event data. A column added to a table
-// later never reaches the room unless it is added here.
+// later never reaches the room unless it is added to the Room* schemas and toRoom* mappers
+// in http/schemas/auditor-rooms.
 
 const room = { tags: ["Auditor room (auditor)"], security: bearer };
-const isoOrNull = (d: Date | null | undefined) => d?.toISOString() ?? null;
 
 const read = (c: Context<AppEnv>, resource: string, id?: string) => {
   const a = c.var.auditor;
@@ -313,147 +259,6 @@ const read = (c: Context<AppEnv>, resource: string, id?: string) => {
   };
 };
 
-const RoomInfo = z
-  .object({
-    name: z.string(),
-    organization: z.string(),
-    scopes: z.array(z.string()),
-    closesAt: z.iso.datetime(),
-    auditor: z.string(),
-  })
-  .openapi("AuditorRoomInfo");
-
-const RoomControl = z
-  .object({
-    framework: z.string(),
-    code: z.string(),
-    title: z.string(),
-    objective: z.string().nullable(),
-    applicable: z.boolean(),
-    status: z.string(),
-    automaticCheck: z
-      .object({ result: z.string(), reason: z.string() })
-      .nullable(),
-    evidence: z.object({
-      current: z.number().int(),
-      expired: z.number().int(),
-      pending: z.number().int(),
-      rejected: z.number().int(),
-    }),
-    lastReviewedAt: z.iso.datetime().nullable(),
-    nextReviewAt: z.iso.datetime().nullable(),
-    reviewOverdue: z.boolean(),
-  })
-  .openapi("AuditorRoomControl");
-type ControlRow = Awaited<ReturnType<typeof complianceService.list>>[number];
-const toRoomControl = (c: ControlRow) => ({
-  framework: c.framework,
-  code: c.code,
-  title: c.title,
-  objective: c.objective ?? null,
-  applicable: c.applicable,
-  status: c.status,
-  automaticCheck: c.check
-    ? { result: c.check.result, reason: c.check.reason }
-    : null,
-  evidence: c.evidenceCounts,
-  lastReviewedAt: isoOrNull(c.lastReviewedAt),
-  nextReviewAt: isoOrNull(c.nextReviewAt),
-  reviewOverdue: c.reviewOverdue,
-});
-
-const RoomEvidence = z
-  .object({
-    kind: z.string(),
-    title: z.string(),
-    description: z.string().nullable(),
-    url: z.string().nullable(),
-    hasFile: z.boolean(),
-    collectedAt: z.iso.datetime().nullable(),
-    validUntil: z.iso.datetime(),
-    status: z.string(),
-    decidedAt: z.iso.datetime().nullable(),
-  })
-  .openapi("AuditorRoomEvidence");
-type EvidenceRow = Awaited<
-  ReturnType<typeof complianceService.get>
->["evidence"][number];
-const toRoomEvidence = (e: EvidenceRow) => ({
-  kind: e.kind,
-  title: e.title,
-  description: e.description ?? null,
-  url: e.url ?? null,
-  hasFile: !!e.artifactId,
-  collectedAt: isoOrNull(e.collectedAt),
-  validUntil: e.validUntil.toISOString(),
-  status: e.status,
-  decidedAt: isoOrNull(e.decidedAt),
-});
-
-const RoomPolicy = z
-  .object({
-    policyId: z.uuid(),
-    code: z.string(),
-    title: z.string(),
-    current: z
-      .object({
-        versionId: z.uuid(),
-        version: z.number().int(),
-        approvedAt: z.iso.datetime().nullable(),
-      })
-      .nullable(),
-  })
-  .openapi("AuditorRoomPolicy");
-
-const RoomRisk = z
-  .object({
-    id: z.uuid(),
-    ref: z.string(),
-    title: z.string(),
-    description: z.string().nullable(),
-    category: z.string(),
-    inherentScore: z.number().int(),
-    inherentLevel: z.string(),
-    residualScore: z.number().int(),
-    residualLevel: z.string(),
-    treatment: z.string(),
-    status: z.string(),
-    acceptedUntil: z.string().nullable(),
-    nextReviewAt: z.iso.datetime(),
-    reviewOverdue: z.boolean(),
-  })
-  .openapi("AuditorRoomRisk");
-type RiskRow = Awaited<ReturnType<typeof risksService.list>>[number];
-const toRoomRisk = (r: RiskRow) => ({
-  id: r.id,
-  ref: r.refLabel,
-  title: r.title,
-  description: r.description,
-  category: r.category,
-  inherentScore: r.inherentScore,
-  inherentLevel: r.inherentLevel,
-  residualScore: r.residualScore,
-  residualLevel: r.residualLevel,
-  treatment: r.treatment,
-  status: r.status,
-  acceptedUntil: r.status === "accepted" ? r.acceptedUntil : null,
-  nextReviewAt: r.nextReviewAt.toISOString(),
-  reviewOverdue: r.reviewOverdue,
-});
-
-const RoomAuditEntry = z
-  .object({
-    seq: z.number().int(),
-    occurredAt: z.iso.datetime(),
-    actorType: z.string(),
-    action: z.string(),
-    entityType: z.string(),
-    entityId: z.string().nullable(),
-    payload: z.record(z.string(), z.unknown()),
-    hash: z.string(),
-  })
-  .openapi("AuditorRoomAuditEntry");
-
 const signIn = createRoute({
   ...room,
   method: "post",
@@ -461,25 +266,10 @@ const signIn = createRoute({
   summary: "Exchange the emailed single-use link for a room session (12 h)",
   middleware: [auditorSignInLimit],
   request: {
-    body: jsonBody(
-      z.object({ token: z.string().min(20).max(200) }),
-      "Link token",
-    ),
+    body: jsonBody(SessionRequest, "Link token"),
   },
   responses: {
-    200: json(
-      z.object({
-        accessToken: z.string(),
-        expiresAt: z.iso.datetime(),
-        room: z.object({
-          name: z.string(),
-          organization: z.string(),
-          scopes: z.array(z.string()),
-          closesAt: z.iso.datetime(),
-        }),
-      }),
-      "Session",
-    ),
+    200: json(SessionSchema, "Session"),
     401: json(ErrorSchema, "Invalid or expired link"),
   },
 });
@@ -491,10 +281,7 @@ const requestLink = createRoute({
     "Ask for a new sign-in link (always 202; sent only if the access is open)",
   middleware: [auditorLinkLimit],
   request: {
-    body: jsonBody(
-      z.object({ roomId: z.uuid(), email: z.email().max(254) }),
-      "Who",
-    ),
+    body: jsonBody(RequestLinkBody, "Who"),
   },
   responses: {
     202: { description: "If the access is open, a link was emailed" },
@@ -523,7 +310,6 @@ const roomGet = <S extends z.ZodType>(
     responses: { 200: json(schema, "Data"), ...authErrors },
   });
 
-const Id = (name: string) => z.uuid().openapi({ param: { name, in: "path" } });
 const roomInfo = roomGet(
   "/room",
   null,
@@ -543,21 +329,10 @@ const control = createRoute({
   summary: "One control with its evidence",
   middleware: [authenticateAuditor, roomScope("controls")],
   request: {
-    params: z.object({
-      framework: z
-        .enum(["DPDPA_2023", "AIGIS_BASELINE"])
-        .openapi({ param: { name: "framework", in: "path" } }),
-      code: z
-        .string()
-        .max(50)
-        .openapi({ param: { name: "code", in: "path" } }),
-    }),
+    params: ControlParams,
   },
   responses: {
-    200: json(
-      z.object({ control: RoomControl, evidence: z.array(RoomEvidence) }),
-      "Control",
-    ),
+    200: json(ControlDetailSchema, "Control"),
     ...authErrors,
   },
 });
@@ -574,19 +349,10 @@ const policyVersion = createRoute({
   summary: "Text of an approved (or superseded) policy version",
   middleware: [authenticateAuditor, roomScope("policies")],
   request: {
-    params: z.object({ policyId: Id("policyId"), versionId: Id("versionId") }),
+    params: PolicyVersionParams,
   },
   responses: {
-    200: json(
-      z.object({
-        id: z.uuid(),
-        version: z.number().int(),
-        status: z.string(),
-        approvedAt: z.iso.datetime().nullable(),
-        body: z.string(),
-      }),
-      "Policy version",
-    ),
+    200: json(PolicyVersionSchema, "Policy version"),
     ...authErrors,
   },
 });
@@ -597,31 +363,9 @@ const risk = createRoute({
   path: "/risks/{riskId}",
   summary: "One risk with its controls, treatment tasks and history",
   middleware: [authenticateAuditor, roomScope("risks")],
-  request: { params: z.object({ riskId: Id("riskId") }) },
+  request: { params: RiskParams },
   responses: {
-    200: json(
-      z.object({
-        risk: RoomRisk,
-        controls: z.array(
-          z.object({
-            framework: z.string(),
-            controlCode: z.string(),
-            title: z.string().nullable(),
-            status: z.string().nullable(),
-          }),
-        ),
-        tasks: z.array(
-          z.object({
-            title: z.string(),
-            status: z.string(),
-            priority: z.string(),
-            dueDate: z.string().nullable(),
-          }),
-        ),
-        history: z.array(z.object({ kind: z.string(), at: z.iso.datetime() })),
-      }),
-      "Risk",
-    ),
+    200: json(RiskDetailSchema, "Risk"),
     ...authErrors,
   },
 });
@@ -635,46 +379,19 @@ const auditVerify = roomGet(
   "/audit-log/verify",
   "audit_log",
   "Verify the audit trail hash chain",
-  z.object({
-    valid: z.boolean(),
-    entries: z.number().int(),
-    brokenAtSeq: z.number().int().nullable(),
-  }),
+  AuditVerifySchema,
 );
 const training = roomGet(
   "/training",
   "training",
   "Training completion per course",
-  z.array(
-    z.object({
-      title: z.string(),
-      completed: z.number().int(),
-      open: z.number().int(),
-      overdue: z.number().int(),
-    }),
-  ),
+  TrainingSummarySchema,
 );
 const accessReviews = roomGet(
   "/access-reviews",
   "access_reviews",
   "Access reviews and what they changed",
-  z.array(
-    z.object({
-      status: z.string(),
-      dueDate: z.string(),
-      startedAt: z.iso.datetime(),
-      completedAt: z.iso.datetime().nullable(),
-      summary: z
-        .object({
-          kept: z.number(),
-          rolesChanged: z.number(),
-          removed: z.number(),
-          keysRevoked: z.number(),
-          skipped: z.number(),
-        })
-        .nullable(),
-    }),
-  ),
+  AccessReviewsSchema,
 );
 
 export const auditorRoutes = createRouter()
@@ -738,7 +455,7 @@ export const auditorRoutes = createRouter()
           ? {
               versionId: r.current.id,
               version: r.current.version,
-              approvedAt: isoOrNull(r.current.approvedAt),
+              approvedAt: iso(r.current.approvedAt),
             }
           : null,
       })),
@@ -761,7 +478,7 @@ export const auditorRoutes = createRouter()
         id: v.id,
         version: v.version,
         status: v.status,
-        approvedAt: isoOrNull(v.approvedAt),
+        approvedAt: iso(v.approvedAt),
         body: v.body,
       },
       200,
@@ -855,7 +572,7 @@ export const auditorRoutes = createRouter()
         status: r.status,
         dueDate: r.dueDate,
         startedAt: r.startedAt.toISOString(),
-        completedAt: isoOrNull(r.completedAt),
+        completedAt: iso(r.completedAt),
         summary: r.summary ?? null,
       })),
       200,

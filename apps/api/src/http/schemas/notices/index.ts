@@ -1,20 +1,11 @@
 import { z } from "@hono/zod-openapi";
+import { Plain, iso } from "../_shared/index.ts";
 import type { Notice, NoticeVersion } from "../../../db/schemas/index.ts";
 import {
   noticeLanguageCodes,
   noticeVersionStatuses,
 } from "../../../domain/notices.ts";
 
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
 /** Notice text: line breaks allowed; ZWJ / ZWNJ allowed (needed by Indic scripts); other controls not. */
 const Prose = (max: number) =>
   z
@@ -182,8 +173,6 @@ export const PublicNoticeParams = z.object({
 export const PublicNoticeQuery = z.object({
   lang: z.string().max(20).optional(),
 });
-
-const iso = (d: Date | null) => d?.toISOString() ?? null;
 
 export const toNoticeDto = (n: Notice) => ({
   id: n.id,

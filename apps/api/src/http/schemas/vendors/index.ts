@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { Prose, iso } from "../_shared/index.ts";
 import type {
   Recipient,
   VendorAssessment,
@@ -11,16 +12,6 @@ import {
   riskRatings,
 } from "../../../domain/vendors.ts";
 
-const Prose = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^(?:[^\p{Cc}\p{Cf}]|[\n\r])*$/u,
-      "must not contain control characters",
-    );
 const Day = z.iso.date().openapi({ example: "2026-04-01" });
 
 export const AnswersSchema = z
@@ -179,8 +170,6 @@ export const ContractParams = z.object({
   orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
   contractId: z.uuid().openapi({ param: { name: "contractId", in: "path" } }),
 });
-
-const iso = (d: Date | null) => d?.toISOString() ?? null;
 
 export const toVendorDto = (r: Recipient) => ({
   id: r.id,

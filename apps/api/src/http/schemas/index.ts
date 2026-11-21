@@ -1,4 +1,11 @@
-/** Request/response DTO schemas, one folder per API resource (mirrors routes/). */
+/**
+ * Request/response DTO schemas, one folder per API resource (mirrors routes/).
+ * Not imported by the app (routes import their own folder). Folders whose names
+ * clash with the ones below are left out: _shared, assessments, auditor-rooms,
+ * domains, github, health, integrations, policy-documents, program,
+ * questionnaires, retention, risks, scan-credentials, trust-center, web-scans,
+ * workforce.
+ */
 export * from "./ai/index.ts";
 export * from "./api-keys/index.ts";
 export * from "./assets/index.ts";

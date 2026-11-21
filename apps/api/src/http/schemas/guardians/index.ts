@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { Plain } from "../_shared/index.ts";
 import type {
   ConsentManager,
   GuardianVerification,
@@ -7,17 +8,6 @@ import {
   appointingAuthorities,
   verificationMethods,
 } from "../../../domain/guardians.ts";
-
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
 
 export const RecordVerificationSchema = z
   .object({
