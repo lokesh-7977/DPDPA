@@ -27,7 +27,11 @@ import { organizationsRepository } from "../repositories/organizations.repositor
 import { usersRepository } from "../repositories/users.repository.ts";
 import { auditService } from "./audit.service.ts";
 import { codeScansService } from "./code-scans.service.ts";
-import { codeScanner, githubClient } from "./github-client.ts";
+import {
+  codeScanner,
+  githubClient,
+  GithubUnavailable,
+} from "./github-client.ts";
 import { queueService } from "./queue.service.ts";
 
 /**
@@ -147,10 +151,21 @@ export const githubService = {
     });
     if (!used) throw refused();
     const gh = githubClient();
-    if (!(await gh.installerControls(v.code, v.installationId)))
-      throw refused();
-    const info = await gh.installation(v.installationId);
-    const repos = await gh.repositories(v.installationId);
+    let info: Awaited<ReturnType<typeof gh.installation>>;
+    let repos: Awaited<ReturnType<typeof gh.repositories>>;
+    try {
+      if (!(await gh.installerControls(v.code, v.installationId)))
+        throw refused();
+      info = await gh.installation(v.installationId);
+      repos = await gh.repositories(v.installationId);
+    } catch (e) {
+      // GitHub said no → the same refusal as every other; GitHub unreachable → 503.
+      const name = e instanceof Error ? e.name : "";
+      if (name === "GithubNotFound" || name === "GithubAccessDenied") throw refused();
+      if (name.startsWith("Github") && name !== "GithubUnavailable")
+        throw new GithubUnavailable("GitHub could not be reached");
+      throw e;
+    }
     return db.transaction(async (tx) => {
       const member = await membershipsRepository.find(
         tx,

@@ -39,6 +39,10 @@ useGithubClient({
     };
   },
   async installerControls(code, id) {
+    // Errors as the real REST client names them.
+    const named = (name: string) => Object.assign(new Error(name), { name });
+    if (code === "down") throw named("GithubUnreachable");
+    if (code === "gone") throw named("GithubNotFound");
     return code === `ok-${id}`;
   },
   async repositories() {
@@ -234,6 +238,15 @@ describe("install (org_admin; ownership proven; single use; bound to the browser
         .body.installations,
       [],
     );
+  });
+
+  test("GitHub unreachable during setup → 503; GitHub says not found → the same 422", async () => {
+    const a = await installLink(org.orgId, org.adminToken);
+    const down = await setup(INSTALLATION, a.state, "down", a.cookie);
+    assert.equal(down.status, 503);
+    const b = await installLink(org.orgId, org.adminToken);
+    const gone = await setup(INSTALLATION, b.state, "gone", b.cookie);
+    assert.equal(gone.status, 422);
   });
 
   test("settings update redirect from GitHub links nothing", async () => {

@@ -1,10 +1,12 @@
 import { env } from "./config/env.ts";
 import { logger } from "./config/logger.ts";
+import { installAdapters } from "./services/adapters/index.ts";
 import { assertAppLogin, closeDb } from "./db/index.ts";
 import { startRunner } from "./jobs/runner.ts";
 
 // Row-level security only holds if the login can't bypass it (docs/operations.md).
 if (env.NODE_ENV === "production" && env.DATABASE_URL) await assertAppLogin();
+installAdapters({ aws: true });
 
 /**
  * Background worker: a separate process from the API (`pnpm --filter api worker`).

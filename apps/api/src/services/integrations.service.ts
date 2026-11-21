@@ -67,7 +67,9 @@ type Results = { resources: StoreObservation[]; findings: CloudFinding[] };
 async function collect(i: Integration, lease?: Lease): Promise<Results> {
   const provider = inventoryProvider();
   if (i.kind === "aws") {
-    const inv = await provider.aws(i.config as AwsConfig, lease);
+    const inv = await provider.aws(i.config as AwsConfig, lease, {
+      integrationId: i.id,
+    });
     const { stores, truncated } = boundInventory(inv.stores);
     const findings = storeFindings(stores);
     if (truncated) findings.push(truncated);

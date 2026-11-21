@@ -93,6 +93,36 @@ An INVALID index (failed concurrent build) must be dropped and rebuilt; otherwis
 in a low-traffic window. New index migrations use `CREATE INDEX IF NOT EXISTS` so a hand-built
 index is kept.
 
+### Integration credentials (worker)
+
+Set together or not at all (boot refuses half a set):
+
+- **AWS inventory** (worker only; the API process never loads them): `AWS_ACCESS_KEY_ID` +
+  `AWS_SECRET_ACCESS_KEY` of a dedicated IAM user (e.g. `dpdpa-inventory`) whose only permission
+  is `sts:AssumeRole`, and only with an external ID and never into the platform's own account:
+
+  ```json
+  {
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/*",
+      "Condition": {
+        "Null": { "sts:ExternalId": "false" },
+        "StringNotEquals": { "aws:ResourceAccount": "<platform account id>" }
+      }
+    }]
+  }
+  ```
+
+  Customers trust that user's ARN (`docs/integrations/cloud.md`). The adapter also refuses role
+  ARNs in the platform's own account (checked with `GetCallerIdentity`). Instance / task role
+  credentials are not supported yet; `AWS_SESSION_TOKEN` works but expires (a warning is logged at
+  boot), after which AWS syncs fail. Rotate the access key like any secret.
+- **GitHub App** (API + worker): `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` (checked as a PEM at
+  boot), `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`.
+
 ## Shutdown
 
 `SIGTERM`: the API stops accepting connections and exits when open requests finish (forced after 10 s); the worker finishes its current job, then exits. Long web crawls run in 20-page chunks, so a stopped worker loses at most one chunk; the next worker continues from the stored frontier.

@@ -7,9 +7,10 @@ changes anything in your account and never reads the contents of a bucket, table
 Results feed the security-safeguards control (DPDPA s.8(5), DPDP Rules r.6) and the
 cross-border control (s.16, r.15).
 
-> Status: the connectors are built and tested against simulated accounts. Live AWS / Google
-> calls are switched on once the platform's own cloud credentials are configured; until then a
-> sync shows `IntegrationUnavailable`.
+> Status: the connectors are built and tested against recorded API responses, not yet against a
+> live account. Google Workspace works with each integration's own key. AWS needs the platform's
+> own credentials (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, allowed only to assume customer
+> roles); until they are set an AWS sync shows `IntegrationUnavailable`.
 
 Only the **org admin** can connect or disconnect. The DPO or admin can run a sync; everyone who
 can read data sees the inventory and findings. Every account is also synced once a day.
@@ -24,15 +25,16 @@ can read data sees the inventory and findings. Every account is also synced once
 
    The answer contains `data.config.externalId`. Keep it for the trust policy.
 2. In your AWS account create the role `dpdpa-readonly`:
-   - **Trust policy** — allow only the platform's inventory role (not its whole account) to
-     assume it, and only with your external ID:
+   - **Trust policy** — allow only the platform's inventory principal (not its whole account) to
+     assume it, and only with your external ID. The platform operator gives you that principal's
+     ARN (an IAM user such as `arn:aws:iam::<platform account>:user/dpdpa-inventory`):
 
      ```json
      {
        "Version": "2012-10-17",
        "Statement": [{
          "Effect": "Allow",
-         "Principal": { "AWS": "arn:aws:iam::<platform account>:role/dpdpa-inventory-worker" },
+         "Principal": { "AWS": "<platform inventory principal ARN>" },
          "Action": "sts:AssumeRole",
          "Condition": { "StringEquals": { "sts:ExternalId": "<config.externalId>" } }
        }]
