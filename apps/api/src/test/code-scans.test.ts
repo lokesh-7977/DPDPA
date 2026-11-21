@@ -299,6 +299,44 @@ describe("HoundDog CI ingestion", () => {
     );
   });
 
+  test("defaultBranch: a PR uploaded first never becomes the baseline; a CI key can't repoint it later", async () => {
+    const repo = { repository: "acme/new-service" };
+    const pr = await upload(ciKey, [FLOWS.emailToLogs], {
+      ...repo,
+      commitSha: "aaaa111",
+      branch: "feature-x",
+      defaultBranch: "main",
+    });
+    assert.equal(pr.status, 200);
+    assert.equal(pr.body.stats.baseline, false, "first upload from a PR is not the baseline");
+    const main = await upload(ciKey, [FLOWS.emailToLogs], {
+      ...repo,
+      commitSha: "aaaa222",
+      branch: "main",
+      defaultBranch: "main",
+    });
+    assert.equal(main.body.stats.baseline, true);
+    const repoint = await upload(ciKey, [], {
+      ...repo,
+      commitSha: "aaaa333",
+      branch: "x",
+      defaultBranch: "x",
+    });
+    assert.equal(repoint.body.stats.baseline, false, "an existing asset keeps its baseline branch");
+    assert.equal(repoint.body.stats.findingsResolved, 0, "nothing resolved by the attempt");
+    const stillMain = await upload(ciKey, [FLOWS.emailToLogs], {
+      ...repo,
+      commitSha: "aaaa444",
+      branch: "main",
+    });
+    assert.equal(stillMain.body.stats.baseline, true);
+    for (const bad of ["HEAD", "refs/heads/main", "two words"])
+      assert.equal(
+        (await upload(ciKey, [], { repository: "acme/other", commitSha: "bbbb111", defaultBranch: bad })).status,
+        400,
+      );
+  });
+
   test("revoked key stops working; invalid SARIF is rejected", async () => {
     assert.equal(
       (

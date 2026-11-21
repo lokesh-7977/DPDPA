@@ -11,6 +11,13 @@ export const SarifUploadSchema = z
       .regex(/^[0-9a-f]{7,64}$/i, "git commit sha")
       .openapi({ example: "781c916790f5f99150244ab4e9942c13a563d2c3" }),
     branch: BranchSchema.optional().openapi({ description: "Omit or set to the default branch for a baseline scan" }),
+    defaultBranch: BranchSchema.refine((b) => b !== "HEAD" && !b.startsWith("refs/"), "a branch name (not HEAD or refs/...)")
+      .optional()
+      .openapi({
+      description:
+        "The repository's default branch as the CI knows it (e.g. main). Used when this upload creates the repository's record, so a pull request uploaded first never becomes the baseline; ignored afterwards. Recommended.",
+      example: "main",
+    }),
     ciRunUrl: z.url().max(500).optional(),
     /** The SARIF 2.1.0 document produced by `hounddog scan --output-format=sarif`. */
     sarif: z.looseObject({ runs: z.array(z.unknown()).min(1).max(50) }),
