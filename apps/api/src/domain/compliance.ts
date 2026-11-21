@@ -122,6 +122,8 @@ export type OrgFacts = {
     uncoveredCountries: string[];
     /** Active integrations without a successful sync in the last CLOUD_FRESH_DAYS. */
     stale: number;
+    /** Integrations whose last sync read only part of the account (truncated inventory). */
+    incomplete?: number;
   };
 };
 
@@ -182,6 +184,11 @@ export const automaticChecks: Record<string, (f: OrgFacts) => CheckResult> = {
     if (code.result !== "fail" && f.cloud?.stale)
       return nd(
         `${f.cloud.stale} cloud / Workspace integration(s) not synced successfully in ${CLOUD_FRESH_DAYS} days`,
+      );
+    // Part of an account unread: a clean result can't be trusted.
+    if (code.result !== "fail" && f.cloud?.incomplete)
+      return nd(
+        `${f.cloud.incomplete} cloud / Workspace integration(s) could only be read in part`,
       );
     return code;
   },

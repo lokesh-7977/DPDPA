@@ -4,7 +4,8 @@
 
 The platform reads **where** personal data is stored and **how** it is protected. It never
 changes anything in your account and never reads the contents of a bucket, table or mailbox.
-Results feed the security-safeguards control (DPDPA s.8(5), DPDP Rules r.6) and the
+Results feed the security-safeguards control (DPDPA s.8(5), DPDP Rules r.6(1): (a) encryption,
+(b) access control, (c) logs and monitoring, (d) backups) and the
 cross-border control (s.16, r.15).
 
 > Status: the connectors are built and tested against recorded API responses, not yet against a
@@ -97,7 +98,9 @@ and cross-border controls show "not determined" until a sync succeeds.
    connect again with the new key, then revoke the old integration.
 
 Findings: `GWS-ADMIN-NO-2SV` (critical), `GWS-USERS-NO-2SV` (high when 2-step verification is
-not enforced), `GWS-DRIVE-EXTERNAL` (medium: files can be shared with anyone outside).
+not enforced), `GWS-DRIVE-EXTERNAL` (medium: files can be shared with anyone outside),
+`GWS-INVENTORY-TRUNCATED` (low: the directory is larger than one sync reads; the security control
+shows "not determined" until a complete read).
 
 ## Disconnect
 

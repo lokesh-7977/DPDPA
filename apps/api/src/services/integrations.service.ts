@@ -255,7 +255,9 @@ export const integrationsService = {
       results = await collect(i, lease);
     } catch (e) {
       error = errorLabel(e);
-      logger.warn({ integrationId: id, error }, "Integration sync failed");
+      // A lost lease means another worker took over: not a failure worth a warning.
+      if (error !== "LeaseLost")
+        logger.warn({ integrationId: id, error }, "Integration sync failed");
     }
     if (lease && !(await lease.renew())) return { skipped: "lease_lost" };
     const now = new Date();

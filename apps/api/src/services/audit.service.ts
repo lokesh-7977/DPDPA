@@ -27,6 +27,11 @@ function pseudonymise(value: string | null | undefined): string | null {
 }
 
 export const auditService = {
+  /** Keyed, non-reversible reference to a value that must not appear in the trail. */
+  pseudonym(value: string): string {
+    return pseudonymise(value)!;
+  },
+
   /**
    * Append one entry to the chain. Call with the SAME transaction as the
    * change it records, so both commit (or roll back) together.

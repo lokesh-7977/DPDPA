@@ -23,6 +23,8 @@ let t: Awaited<ReturnType<typeof bootTestApp>>;
 let org: { orgId: string; adminToken: string };
 let dpoToken: string;
 let editorToken: string;
+/** The App repository's asset, checked again after the uninstall. */
+let appAssetPath = "";
 const P = (p: string) => `/orgs/${org.orgId}${p}`;
 const SECRET = process.env.GITHUB_WEBHOOK_SECRET!;
 const INSTALLATION = 4242;
@@ -547,6 +549,23 @@ describe("webhooks and scans", () => {
     assert.equal(repo.defaultBranch, "main");
   });
 
+  test("the default branch of an App repository can't be changed by hand (409); editors can't at all", async () => {
+    const assets = (await t.call("GET", P("/assets"), org.adminToken)).body;
+    const asset = assets.find(
+      (a: { fullName: string }) => a.fullName === "acme/app-renamed",
+    );
+    const path = P(`/assets/${asset.id}`);
+    assert.equal(
+      (await t.call("PATCH", path, editorToken, { defaultBranch: "develop" })).status,
+      403,
+    );
+    assert.equal(
+      (await t.call("PATCH", path, org.adminToken, { defaultBranch: "develop" })).status,
+      409,
+    );
+    appAssetPath = path;
+  });
+
   test("uninstall on GitHub stops scans; later events for it are ignored", async () => {
     await webhook("installation", {
       action: "deleted",
@@ -572,6 +591,13 @@ describe("webhooks and scans", () => {
       (await t.call("POST", P(`/github/repos/${repoRef}/scan`), dpoToken))
         .status,
       409,
+    );
+    // The App no longer owns the default branch: a DPO / admin can correct it now.
+    assert.ok(appAssetPath);
+    assert.equal(
+      (await t.call("PATCH", appAssetPath, dpoToken, { defaultBranch: "develop" }))
+        .status,
+      200,
     );
   });
 });

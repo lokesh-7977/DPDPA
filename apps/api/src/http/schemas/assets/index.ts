@@ -21,6 +21,16 @@ export const BranchSchema = z
   .max(255)
   .regex(/^[^\p{Cc}\s]+$/u, "invalid branch name");
 
+/** A default branch: a plain branch name (not HEAD or a refs/... path). */
+export const DefaultBranchSchema = BranchSchema.refine(
+  (b) => b !== "HEAD" && !b.startsWith("refs/"),
+  "a branch name (not HEAD or refs/...)",
+).openapi({ example: "main" });
+
+export const UpdateRepoAssetSchema = z
+  .object({ defaultBranch: DefaultBranchSchema })
+  .openapi("UpdateRepoAsset");
+
 export const CreateRepoAssetSchema = z
   .object({
     provider: RepoProviderSchema.default("github"),

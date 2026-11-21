@@ -105,6 +105,7 @@ async function facts(orgId: string, now: Date): Promise<OrgFacts> {
       ? {
           connected: cloud.connected,
           criticalOrHigh: cloud.criticalOrHigh,
+          incomplete: cloud.incomplete,
           uncoveredCountries: uncoveredCountries(
             cloud.storeCountries,
             transfers.activeCountries,

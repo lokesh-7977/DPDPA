@@ -337,6 +337,37 @@ describe("HoundDog CI ingestion", () => {
       );
   });
 
+  test("DPO / admin corrects a wrong default branch (audited); CI keys and other orgs can't", async () => {
+    const repo = { repository: "acme/wrong-default" };
+    await upload(ciKey, [FLOWS.emailToLogs], { ...repo, commitSha: "cccc111", branch: "master", defaultBranch: "main" });
+    const assets = (await call("GET", `/orgs/${orgId}/assets`, adminToken)).body;
+    const asset = assets.find((a: { fullName: string }) => a.fullName === "acme/wrong-default");
+    assert.equal(asset.defaultBranch, "main");
+    const path = `/orgs/${orgId}/assets/${asset.id}`;
+    assert.equal((await call("PATCH", path, adminToken, { defaultBranch: "HEAD" })).status, 400);
+    const fixed = await call("PATCH", path, adminToken, { defaultBranch: "master" });
+    assert.equal(fixed.status, 200);
+    assert.equal(fixed.body.defaultBranch, "master");
+    const next = await upload(ciKey, [FLOWS.emailToLogs], { ...repo, commitSha: "cccc222", branch: "master" });
+    assert.equal(next.body.stats.baseline, true, "master is now the baseline");
+    assert.equal((await call("PATCH", path, ciKey, { defaultBranch: "main" })).status, 401);
+    assert.equal(
+      (await call("PATCH", `/orgs/${otherOrg.orgId}/assets/${asset.id}`, otherOrg.adminToken, { defaultBranch: "main" })).status,
+      404,
+      "another org's asset id is not found",
+    );
+    assert.equal(
+      (await call("PATCH", `/orgs/${orgId}/assets/00000000-0000-4000-8000-000000000000`, adminToken, { defaultBranch: "main" })).status,
+      404,
+    );
+    const audit = (await call("GET", `/orgs/${orgId}/audit?action=asset.default_branch_changed`, adminToken)).body.items;
+    const row = audit[0];
+    assert.ok(row, "audited");
+    assert.ok(!JSON.stringify(row.payload).includes("master"), "no branch names in the audit");
+    assert.match(row.payload.fromRef, /^[0-9a-f]{64}$/, "keyed pseudonym of the old branch");
+    assert.notEqual(row.payload.fromRef, row.payload.toRef);
+  });
+
   test("revoked key stops working; invalid SARIF is rejected", async () => {
     assert.equal(
       (

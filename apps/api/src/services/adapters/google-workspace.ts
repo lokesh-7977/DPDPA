@@ -133,7 +133,13 @@ export function createWorkspaceInventory(deps: {
       pageToken = typeof body.nextPageToken === "string" ? body.nextPageToken : undefined;
       if (!pageToken) break;
     }
-    return { users: total, usersWithout2sv, adminsWithout2sv };
+    // Still a next page after the last one read: the directory is larger than one sync reads.
+    return {
+      users: total,
+      usersWithout2sv,
+      adminsWithout2sv,
+      ...(pageToken ? { usersTruncated: true } : {}),
+    };
   }
 
   /** Policies; null when the Policy API refuses (the user counts still make a useful sync). */

@@ -30,6 +30,42 @@ export const assetsService = {
     });
   },
 
+  /**
+   * Corrects which branch is the baseline (DPO / admin). CI uploads can only set it when they
+   * create the asset; repositories connected through the GitHub App follow GitHub instead.
+   */
+  updateDefaultBranch(ctx: OrgContext, assetId: string, defaultBranch: string) {
+    assertPermission(ctx, "data.approve");
+    return db.transaction(async (tx) => {
+      const asset = await assetsRepository.findRepoByIdForUpdate(tx, ctx.org.orgId, assetId);
+      if (!asset) throw notFound("Asset not found");
+      if (
+        asset.provider === "github" &&
+        (await assetsRepository.isGithubAppRepo(tx, ctx.org.orgId, asset.fullName))
+      )
+        throw conflict(
+          "This repository is connected through the GitHub App; its default branch follows GitHub",
+        );
+      if (asset.defaultBranch === defaultBranch) return asset;
+      await assetsRepository.setDefaultBranch(tx, ctx.org.orgId, assetId, defaultBranch);
+      // Branch names stay out of the trail (they can hold people's names); keyed pseudonyms
+      // still show which branch it was and let an investigator check a suspected name.
+      await auditService.record(tx, ctx.actor, {
+        orgId: ctx.org.orgId,
+        action: "asset.default_branch_changed",
+        entityType: "asset",
+        entityId: assetId,
+        payload: {
+          type: "code_repository",
+          provider: asset.provider,
+          fromRef: auditService.pseudonym(asset.defaultBranch),
+          toRef: auditService.pseudonym(defaultBranch),
+        },
+      });
+      return { ...asset, defaultBranch };
+    });
+  },
+
   /** Personal data found in this repository's code and where it flows. */
   async dataMap(ctx: OrgContext, assetId: string) {
     assertPermission(ctx, "data.read");

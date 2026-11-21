@@ -154,7 +154,13 @@ export const integrationsRepository = {
       );
     const ids = active.map((a) => a.id);
     if (!ids.length)
-      return { connected: 0, criticalOrHigh: 0, storeCountries: [], lastSuccess: [] };
+      return {
+        connected: 0,
+        criticalOrHigh: 0,
+        incomplete: 0,
+        storeCountries: [],
+        lastSuccess: [],
+      };
     const [counts] = await ex
       .select({ n: sql<number>`count(*)::int` })
       .from(integrationFindings)
@@ -163,6 +169,21 @@ export const integrationsRepository = {
           eq(integrationFindings.orgId, orgId),
           inArray(integrationFindings.integrationId, ids),
           inArray(integrationFindings.severity, ["critical", "high"]),
+        ),
+      );
+    const [truncated] = await ex
+      .select({
+        n: sql<number>`count(distinct ${integrationFindings.integrationId})::int`,
+      })
+      .from(integrationFindings)
+      .where(
+        and(
+          eq(integrationFindings.orgId, orgId),
+          inArray(integrationFindings.integrationId, ids),
+          inArray(integrationFindings.code, [
+            "GWS-INVENTORY-TRUNCATED",
+            "CLOUD-INVENTORY-TRUNCATED",
+          ]),
         ),
       );
     const stores = await ex
@@ -195,6 +216,7 @@ export const integrationsRepository = {
     return {
       connected: ids.length,
       criticalOrHigh: counts?.n ?? 0,
+      incomplete: truncated?.n ?? 0,
       storeCountries: stores.map((s) => s.country),
       lastSuccess: ids.map((x) => byIntegration.get(x) ?? null),
     };
