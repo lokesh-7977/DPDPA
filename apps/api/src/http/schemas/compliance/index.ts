@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { Plain, Prose, iso } from "../_shared/index.ts";
 import type {
   ControlEvidence,
   OrgControlSetting,
@@ -9,26 +10,6 @@ import {
 } from "../../../domain/compliance.ts";
 import { ControlFrameworkSchema } from "../catalog/index.ts";
 
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
-const Prose = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^(?:[^\p{Cc}\p{Cf}]|[\n\r])*$/u,
-      "must not contain control characters",
-    );
 const Instant = z.iso.datetime({ offset: true }).transform((s) => new Date(s));
 
 export const ControlStatusSchema = z
@@ -98,7 +79,10 @@ export const EvidenceItemSchema = z
   .openapi("ControlEvidence");
 
 export const ManagedControlDetailSchema = z
-  .object({ control: ManagedControlSchema, evidence: z.array(EvidenceItemSchema) })
+  .object({
+    control: ManagedControlSchema,
+    evidence: z.array(EvidenceItemSchema),
+  })
   .openapi("ManagedControlDetail");
 
 export const ReadinessSchema = z
@@ -184,8 +168,6 @@ export const EvidenceParams = z.object({
   orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
   evidenceId: z.uuid().openapi({ param: { name: "evidenceId", in: "path" } }),
 });
-
-const iso = (d: Date | null) => d?.toISOString() ?? null;
 
 type ControlView = Omit<
   z.input<typeof ManagedControlSchema>,

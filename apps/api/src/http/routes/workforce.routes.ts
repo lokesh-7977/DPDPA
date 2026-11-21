@@ -1,9 +1,4 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import type {
-  AccessReview,
-  TrainingAssignment,
-  TrainingCourse,
-} from "../../db/schemas/index.ts";
 import { orgRoles } from "../../domain/auth.ts";
 import { accessDecisions } from "../../domain/workforce.ts";
 import { accessReviewsService } from "../../services/access-reviews.service.ts";
@@ -19,6 +14,22 @@ import {
   jsonBody,
 } from "../openapi.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
+import {
+  Day,
+  CourseSchema,
+  toCourseDto,
+  AssignmentSchema,
+  toAssignmentDto,
+  CourseFields,
+  CourseParams,
+  AssignmentParams,
+  ReviewSchema,
+  toReviewDto,
+  ItemSchema,
+  ReviewParams,
+  ItemParams,
+  toItemDto,
+} from "../schemas/workforce/index.ts";
 
 /** Phase 9e — training and access reviews. */
 const training = {
@@ -34,98 +45,6 @@ const reviews = {
 const notFound = json(ErrorSchema, "Not found");
 const conflict = json(ErrorSchema, "Wrong state");
 const unprocessable = json(ErrorSchema, "Unprocessable");
-
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
-const Text = (max: number) =>
-  z
-    .string()
-    .max(max)
-    .regex(
-      /^(?:[^\p{Cc}\p{Cf}]|[\n\r\t])*$/u,
-      "must not contain control or invisible characters",
-    );
-const Day = z.iso.date();
-const iso = (d: Date | null) => d?.toISOString() ?? null;
-
-const CourseSchema = z
-  .object({
-    id: z.uuid(),
-    title: z.string(),
-    description: z.string().nullable(),
-    contentUrl: z.string().nullable(),
-    body: z.string().nullable(),
-    recurrenceDays: z.number().int().nullable(),
-    active: z.boolean(),
-    createdAt: z.iso.datetime(),
-  })
-  .openapi("TrainingCourse");
-const toCourseDto = (c: TrainingCourse) => ({
-  id: c.id,
-  title: c.title,
-  description: c.description,
-  contentUrl: c.contentUrl,
-  body: c.body,
-  recurrenceDays: c.recurrenceDays,
-  active: c.active,
-  createdAt: c.createdAt.toISOString(),
-});
-
-const AssignmentSchema = z
-  .object({
-    id: z.uuid(),
-    courseId: z.uuid(),
-    courseTitle: z.string(),
-    userId: z.uuid(),
-    cycle: z.number().int(),
-    dueDate: Day,
-    completedAt: z.iso.datetime().nullable(),
-    overdue: z.boolean(),
-  })
-  .openapi("TrainingAssignment");
-const toAssignmentDto = (
-  a: TrainingAssignment & { courseTitle: string; overdue: boolean },
-) => ({
-  id: a.id,
-  courseId: a.courseId,
-  courseTitle: a.courseTitle,
-  userId: a.userId,
-  cycle: a.cycle,
-  dueDate: a.dueDate,
-  completedAt: iso(a.completedAt),
-  overdue: a.overdue,
-});
-
-const CourseFields = {
-  title: Plain(200),
-  description: Text(2000).nullable().optional(),
-  contentUrl: z
-    .url({ protocol: /^https$/ })
-    .max(2000)
-    .nullable()
-    .optional(),
-  body: Text(100_000).nullable().optional(),
-  recurrenceDays: z.number().int().min(30).max(730).nullable().optional(),
-};
-
-const CourseParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  courseId: z.uuid().openapi({ param: { name: "courseId", in: "path" } }),
-});
-const AssignmentParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  assignmentId: z
-    .uuid()
-    .openapi({ param: { name: "assignmentId", in: "path" } }),
-});
 
 const listCourses = createRoute({
   ...training,
@@ -259,61 +178,6 @@ const report = createRoute({
 
 // ─── Access reviews ──────────────────────────────────────────────────────────
 
-const ReviewSchema = z
-  .object({
-    id: z.uuid(),
-    status: z.enum(["open", "completed"]),
-    dueDate: Day,
-    startedBy: z.uuid().nullable(),
-    startedAt: z.iso.datetime(),
-    completedBy: z.uuid().nullable(),
-    completedAt: z.iso.datetime().nullable(),
-    summary: z
-      .object({
-        kept: z.number(),
-        rolesChanged: z.number(),
-        removed: z.number(),
-        keysRevoked: z.number(),
-        skipped: z.number(),
-      })
-      .nullable(),
-  })
-  .openapi("AccessReview");
-const toReviewDto = (r: AccessReview) => ({
-  id: r.id,
-  status: r.status,
-  dueDate: r.dueDate,
-  startedBy: r.startedBy,
-  startedAt: r.startedAt.toISOString(),
-  completedBy: r.completedBy,
-  completedAt: iso(r.completedAt),
-  summary: r.summary ?? null,
-});
-const ItemSchema = z
-  .object({
-    id: z.uuid(),
-    kind: z.enum(["member", "api_key"]),
-    subjectId: z.uuid(),
-    name: z.string().nullable(),
-    email: z.string().nullable(),
-    roleAtStart: z.enum(orgRoles).nullable(),
-    keyName: z.string().nullable(),
-    keyScopes: z.array(z.string()).nullable(),
-    decision: z.enum(accessDecisions).nullable(),
-    newRole: z.enum(orgRoles).nullable(),
-    decidedBy: z.uuid().nullable(),
-    decidedAt: z.iso.datetime().nullable(),
-  })
-  .openapi("AccessReviewItem");
-
-const ReviewParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  reviewId: z.uuid().openapi({ param: { name: "reviewId", in: "path" } }),
-});
-const ItemParams = ReviewParams.extend({
-  itemId: z.uuid().openapi({ param: { name: "itemId", in: "path" } }),
-});
-
 const listReviews = createRoute({
   ...reviews,
   method: "get",
@@ -395,20 +259,6 @@ const completeReview = createRoute({
     409: conflict,
     ...errors,
   },
-});
-
-type Item = Awaited<ReturnType<typeof accessReviewsService.decide>>;
-const toItemDto = (i: Item) => ({
-  id: i.id,
-  kind: i.kind,
-  subjectId: i.subjectId,
-  roleAtStart: i.roleAtStart,
-  keyName: i.keyName,
-  keyScopes: i.keyScopes,
-  decision: i.decision,
-  newRole: i.newRole,
-  decidedBy: i.decidedBy,
-  decidedAt: iso(i.decidedAt),
 });
 
 export const workforceRoutes = createRouter()

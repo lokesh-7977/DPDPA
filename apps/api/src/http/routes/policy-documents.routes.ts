@@ -1,5 +1,4 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import type { Policy, PolicyVersion } from "../../db/schemas/index.ts";
 import { POLICY_CODES } from "../../domain/program.ts";
 import { policyDocumentsService } from "../../services/policy-documents.service.ts";
 import { orgContext } from "../context.ts";
@@ -12,8 +11,20 @@ import {
   json,
   jsonBody,
 } from "../openapi.ts";
+import { iso } from "../schemas/_shared/index.ts";
 import { OrgIdParam } from "../schemas/organizations/index.ts";
 import { PageQuery } from "../schemas/paging/index.ts";
+import {
+  VersionStatus,
+  PolicySchema,
+  toPolicyDto,
+  VersionMetaSchema,
+  toMetaDto,
+  VersionSchema,
+  toVersionDto,
+  PolicyParams,
+  VersionParams,
+} from "../schemas/policy-documents/index.ts";
 
 /** Phase 9b — policies: templates, approval workflow with separation of duties, attestations. */
 const base = {
@@ -24,78 +35,6 @@ const base = {
 const notFound = json(ErrorSchema, "Not found");
 const conflict = json(ErrorSchema, "Wrong state");
 const unprocessable = json(ErrorSchema, "Unprocessable");
-
-const iso = (d: Date | null) => d?.toISOString() ?? null;
-const VersionStatus = z.enum(["draft", "in_review", "approved", "superseded"]);
-
-const PolicySchema = z
-  .object({
-    id: z.uuid(),
-    code: z.string(),
-    title: z.string(),
-    ownerUserId: z.uuid().nullable(),
-    createdAt: z.iso.datetime(),
-  })
-  .openapi("Policy");
-const toPolicyDto = (p: Policy) => ({
-  id: p.id,
-  code: p.code,
-  title: p.title,
-  ownerUserId: p.ownerUserId,
-  createdAt: p.createdAt.toISOString(),
-});
-
-const VersionMetaSchema = z
-  .object({
-    id: z.uuid(),
-    version: z.number().int(),
-    status: VersionStatus,
-    templateVersion: z.number().int().nullable(),
-    submittedAt: z.iso.datetime().nullable(),
-    approvedBy: z.uuid().nullable(),
-    approvedAt: z.iso.datetime().nullable(),
-    supersededAt: z.iso.datetime().nullable(),
-    rejectionNote: z.string().nullable(),
-    createdAt: z.iso.datetime(),
-  })
-  .openapi("PolicyVersionMeta");
-type Meta = Pick<
-  PolicyVersion,
-  | "id"
-  | "version"
-  | "status"
-  | "templateVersion"
-  | "submittedAt"
-  | "approvedBy"
-  | "approvedAt"
-  | "supersededAt"
-  | "rejectionNote"
-  | "createdAt"
->;
-const toMetaDto = (v: Meta) => ({
-  id: v.id,
-  version: v.version,
-  status: v.status,
-  templateVersion: v.templateVersion,
-  submittedAt: iso(v.submittedAt),
-  approvedBy: v.approvedBy,
-  approvedAt: iso(v.approvedAt),
-  supersededAt: iso(v.supersededAt),
-  rejectionNote: v.rejectionNote,
-  createdAt: v.createdAt.toISOString(),
-});
-const VersionSchema = VersionMetaSchema.extend({ body: z.string() }).openapi(
-  "PolicyVersion",
-);
-const toVersionDto = (v: PolicyVersion) => ({ ...toMetaDto(v), body: v.body });
-
-const PolicyParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  policyId: z.uuid().openapi({ param: { name: "policyId", in: "path" } }),
-});
-const VersionParams = PolicyParams.extend({
-  versionId: z.uuid().openapi({ param: { name: "versionId", in: "path" } }),
-});
 
 const listRoute = createRoute({
   ...base,

@@ -1,14 +1,7 @@
-import { createRoute, z } from "@hono/zod-openapi";
+import { createRoute } from "@hono/zod-openapi";
 import { systemService } from "../../services/system.service.ts";
 import { createRouter, json } from "../openapi.ts";
-
-const HealthSchema = z
-  .object({
-    status: z.literal("ok"),
-    uptime: z.number(),
-    timestamp: z.iso.datetime(),
-  })
-  .openapi("Health");
+import { HealthSchema, ReadySchema } from "../schemas/health/index.ts";
 
 const route = createRoute({
   method: "get",
@@ -17,10 +10,6 @@ const route = createRoute({
   summary: "Liveness probe",
   responses: { 200: json(HealthSchema, "OK") },
 });
-
-const ReadySchema = z
-  .object({ ready: z.boolean(), dbLatencyMs: z.number().nullable() })
-  .openapi("Readiness");
 
 const readyRoute = createRoute({
   method: "get",

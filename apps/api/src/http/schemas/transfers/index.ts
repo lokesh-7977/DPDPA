@@ -1,26 +1,7 @@
 import { z } from "@hono/zod-openapi";
+import { Plain, Prose } from "../_shared/index.ts";
 import type { RestrictedCountry, Transfer } from "../../../db/schemas/index.ts";
 
-const Prose = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^(?:[^\p{Cc}\p{Cf}]|[\n\r])*$/u,
-      "must not contain control characters",
-    );
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
 const Day = z.iso.date().openapi({ example: "2026-04-01" });
 /** ISO 3166-1 alpha-2, outside India. */
 const Country = z

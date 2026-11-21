@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { Plain, iso } from "../_shared/index.ts";
 import type {
   Nomination,
   RightsRequest,
@@ -10,16 +11,6 @@ import {
   rightsStatuses,
 } from "../../../domain/rights.ts";
 
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
 /** Free text: newlines allowed, other control characters not. */
 const Prose = (max: number) =>
   z
@@ -152,8 +143,6 @@ export const SlugParam = z.object({
     .regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/)
     .openapi({ param: { name: "slug", in: "path" } }),
 });
-
-const iso = (d: Date | null) => d?.toISOString() ?? null;
 
 export const toRightsDto = (r: RightsRequest & { overdue: boolean }) => ({
   id: r.id,

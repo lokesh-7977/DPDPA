@@ -1,5 +1,4 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import type { ScanCredential } from "../../db/schemas/index.ts";
 import { scanCredentialsService } from "../../services/scan-credentials.service.ts";
 import { orgContext } from "../context.ts";
 import { authenticateUser, orgAccess } from "../middleware/user-auth.ts";
@@ -11,6 +10,14 @@ import {
   json,
   jsonBody,
 } from "../openapi.ts";
+import { Plain } from "../schemas/_shared/index.ts";
+import {
+  FieldName,
+  CredentialSchema,
+  toDto,
+  DomainParams,
+  CredentialParams,
+} from "../schemas/scan-credentials/index.ts";
 
 /** Phase 4c — website test accounts for authenticated crawls (org_admin; write-only secrets). */
 const base = {
@@ -20,64 +27,6 @@ const base = {
 };
 const notFound = json(ErrorSchema, "Not found");
 const conflict = json(ErrorSchema, "Wrong state");
-
-const Plain = (max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1)
-    .max(max)
-    .regex(
-      /^[^\p{Cc}\p{Cf}]*$/u,
-      "must not contain control or invisible characters",
-    );
-const FieldName = z
-  .string()
-  .regex(/^[A-Za-z0-9_\-.[\]:]{1,100}$/)
-  .nullable()
-  .optional();
-
-const CredentialSchema = z
-  .object({
-    id: z.uuid(),
-    domainId: z.uuid(),
-    label: z.string(),
-    loginPath: z.string(),
-    loggedInMarker: z.string(),
-    usernameField: z.string().nullable(),
-    passwordField: z.string().nullable(),
-    active: z.boolean(),
-    createdAt: z.iso.datetime(),
-    lastUsedAt: z.iso.datetime().nullable(),
-    revokedAt: z.iso.datetime().nullable(),
-  })
-  .openapi("ScanTestAccount");
-
-/** Never includes the username or password. */
-const toDto = (c: ScanCredential) => ({
-  id: c.id,
-  domainId: c.domainId,
-  label: c.label,
-  loginPath: c.loginPath,
-  loggedInMarker: c.loggedInMarker,
-  usernameField: c.usernameField,
-  passwordField: c.passwordField,
-  active: !c.revokedAt,
-  createdAt: c.createdAt.toISOString(),
-  lastUsedAt: c.lastUsedAt?.toISOString() ?? null,
-  revokedAt: c.revokedAt?.toISOString() ?? null,
-});
-
-const DomainParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  domainId: z.uuid().openapi({ param: { name: "domainId", in: "path" } }),
-});
-const CredentialParams = z.object({
-  orgId: z.uuid().openapi({ param: { name: "orgId", in: "path" } }),
-  credentialId: z
-    .uuid()
-    .openapi({ param: { name: "credentialId", in: "path" } }),
-});
 
 const listRoute = createRoute({
   ...base,
