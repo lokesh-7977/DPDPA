@@ -9,11 +9,12 @@ process.env.RATE_LIMIT_ENABLED = "false";
 delete process.env.DATABASE_URL;
 process.env.JWT_SECRET ??= "test-secret-test-secret-test-secret-123";
 
-const { bootTestApp } = await import("./helpers.ts");
+const { bootTestApp, unwrapEnvelope } = await import("./helpers.ts");
 const { memoryOutbox } = await import("../services/mailer.ts");
 const { runOnce } = await import("../jobs/runner.ts");
 const { sql } = await import("drizzle-orm");
-const { boardReportDueAt, dueAlertStage, nextBreachStatus, draftBoardReport } = await import("../domain/breach.ts");
+const { boardReportDueAt, dueAlertStage, nextBreachStatus, draftBoardReport } =
+  await import("../domain/breach.ts");
 
 let t: Awaited<ReturnType<typeof bootTestApp>>;
 let org: { orgId: string; adminToken: string };
@@ -24,38 +25,82 @@ let dpoToken: string;
 let breachId: string;
 const P = (p: string) => `/orgs/${org.orgId}${p}`;
 const HOUR = 3_600_000;
-const mails = (to: string, subject: RegExp) => memoryOutbox.filter((m) => m.to === to && subject.test(m.subject));
+const mails = (to: string, subject: RegExp) =>
+  memoryOutbox.filter((m) => m.to === to && subject.test(m.subject));
 
 before(async () => {
   t = await bootTestApp();
   org = await t.createOrg("acme");
   other = await t.createOrg("beta");
-  editorToken = await t.addMember(org.orgId, org.adminToken, "editor@acme.test", "editor");
-  viewerToken = await t.addMember(org.orgId, org.adminToken, "viewer@acme.test", "viewer");
-  dpoToken = await t.addMember(org.orgId, org.adminToken, "dpo@acme.test", "privacy_officer");
-  await t.call("PATCH", P(""), org.adminToken, { legalName: "Acme India Pvt Ltd", dpoEmail: "dpo@acme.test" });
+  editorToken = await t.addMember(
+    org.orgId,
+    org.adminToken,
+    "editor@acme.test",
+    "editor",
+  );
+  viewerToken = await t.addMember(
+    org.orgId,
+    org.adminToken,
+    "viewer@acme.test",
+    "viewer",
+  );
+  dpoToken = await t.addMember(
+    org.orgId,
+    org.adminToken,
+    "dpo@acme.test",
+    "privacy_officer",
+  );
+  await t.call("PATCH", P(""), org.adminToken, {
+    legalName: "Acme India Pvt Ltd",
+    dpoEmail: "dpo@acme.test",
+  });
 });
 after(() => t.closeDb());
 
 describe("breach domain (pure)", () => {
   test("72 h clock, Board extension, alert stages", () => {
     const aware = new Date("2027-06-01T10:00:00Z");
-    assert.equal(boardReportDueAt(aware, null).toISOString(), "2027-06-04T10:00:00.000Z");
+    assert.equal(
+      boardReportDueAt(aware, null).toISOString(),
+      "2027-06-04T10:00:00.000Z",
+    );
     const ext = new Date("2027-06-10T00:00:00Z");
     assert.equal(boardReportDueAt(aware, ext).toISOString(), ext.toISOString());
     const due = boardReportDueAt(aware, null);
     assert.equal(dueAlertStage(new Date(due.getTime() - 30 * HOUR), due), null);
-    assert.equal(dueAlertStage(new Date(due.getTime() - 20 * HOUR), due), "24h");
+    assert.equal(
+      dueAlertStage(new Date(due.getTime() - 20 * HOUR), due),
+      "24h",
+    );
     assert.equal(dueAlertStage(new Date(due.getTime() - 2 * HOUR), due), "6h");
     assert.equal(dueAlertStage(new Date(due.getTime() + 1), due), "overdue");
   });
 
   test("workflow rules", () => {
-    assert.equal(nextBreachStatus("reported", "contain", { boardReportSent: false }), "contained");
-    assert.throws(() => nextBreachStatus("contained", "close", { boardReportSent: false }), /detailed report/);
-    assert.equal(nextBreachStatus("contained", "close", { boardReportSent: true }), "closed");
-    assert.throws(() => nextBreachStatus("reported", "dismiss", { boardReportSent: false, reason: " " }), /reason/);
-    assert.throws(() => nextBreachStatus("closed", "contain", { boardReportSent: true }), /Cannot contain/);
+    assert.equal(
+      nextBreachStatus("reported", "contain", { boardReportSent: false }),
+      "contained",
+    );
+    assert.throws(
+      () => nextBreachStatus("contained", "close", { boardReportSent: false }),
+      /detailed report/,
+    );
+    assert.equal(
+      nextBreachStatus("contained", "close", { boardReportSent: true }),
+      "closed",
+    );
+    assert.throws(
+      () =>
+        nextBreachStatus("reported", "dismiss", {
+          boardReportSent: false,
+          reason: " ",
+        }),
+      /reason/,
+    );
+    assert.throws(
+      () => nextBreachStatus("closed", "contain", { boardReportSent: true }),
+      /Cannot contain/,
+    );
   });
 
   test("detailed report draft covers r.7(2)(b)(i)-(vi)", () => {
@@ -81,32 +126,62 @@ describe("breach domain (pure)", () => {
       { name: "Acme", legalName: null, contact: null },
       { notified: 3, noContact: 1 },
     );
-    for (const item of ["(i)", "(ii)", "(iii)", "(iv)", "(v)", "(vi)"]) assert.ok(text.includes(item), item);
+    for (const item of ["(i)", "(ii)", "(iii)", "(iv)", "(v)", "(vi)"])
+      assert.ok(text.includes(item), item);
     assert.match(text, /3 notified, 1 without registered contact/);
   });
 });
 
 describe("breach register", () => {
   test("validation: missing fields, future awareness, occurred after aware", async () => {
-    assert.equal((await t.call("POST", P("/breaches"), editorToken, { title: "x" })).status, 400);
+    assert.equal(
+      (await t.call("POST", P("/breaches"), editorToken, { title: "x" }))
+        .status,
+      400,
+    );
     const future = new Date(Date.now() + 2 * HOUR).toISOString();
     assert.equal(
-      (await t.call("POST", P("/breaches"), editorToken, { title: "x", description: "y", severity: "low", awareAt: future })).status,
+      (
+        await t.call("POST", P("/breaches"), editorToken, {
+          title: "x",
+          description: "y",
+          severity: "low",
+          awareAt: future,
+        })
+      ).status,
       422,
     );
     const aware = new Date(Date.now() - HOUR).toISOString();
     assert.equal(
-      (await t.call("POST", P("/breaches"), editorToken, { title: "x", description: "y", severity: "low", awareAt: aware, occurredAt: new Date().toISOString() })).status,
+      (
+        await t.call("POST", P("/breaches"), editorToken, {
+          title: "x",
+          description: "y",
+          severity: "low",
+          awareAt: aware,
+          occurredAt: new Date().toISOString(),
+        })
+      ).status,
       422,
     );
-    assert.equal((await t.call("POST", P("/breaches"), viewerToken, { title: "x", description: "y", severity: "low" })).status, 403);
+    assert.equal(
+      (
+        await t.call("POST", P("/breaches"), viewerToken, {
+          title: "x",
+          description: "y",
+          severity: "low",
+        })
+      ).status,
+      403,
+    );
   });
 
   test("reporting starts the 72 h clock and emails DPO / admins at once", async () => {
     const aware = new Date(Date.now() - 2 * HOUR);
     const res = await t.call("POST", P("/breaches"), editorToken, {
       title: "Customer export bucket was public",
-      description: "An S3 bucket with a CSV of customer emails and phone numbers was publicly readable.",
+      description:
+        "An S3 bucket with a CSV of customer emails and phone numbers was publicly readable.",
       nature: "Unauthorised access (misconfiguration)",
       extent: "One CSV file",
       occurredAt: new Date(Date.now() - 30 * HOUR).toISOString(),
@@ -120,7 +195,10 @@ describe("breach register", () => {
     assert.equal(res.status, 201, JSON.stringify(res.body));
     breachId = res.body.id;
     assert.match(res.body.reference, /^BR-[2-9A-Z]{8}$/);
-    assert.equal(new Date(res.body.boardReportDueAt).getTime(), aware.getTime() + 72 * HOUR);
+    assert.equal(
+      new Date(res.body.boardReportDueAt).getTime(),
+      aware.getTime() + 72 * HOUR,
+    );
     assert.equal(res.body.status, "reported");
     for (const to of ["admin@acme.test", "dpo@acme.test"]) {
       const m = mails(to, /\[HIGH\] Personal data breach reported/)[0];
@@ -131,17 +209,45 @@ describe("breach register", () => {
   });
 
   test("org isolation", async () => {
-    assert.equal((await t.call("GET", `/orgs/${other.orgId}/breaches/${breachId}`, other.adminToken)).status, 404);
-    assert.equal((await t.call("GET", `/orgs/${other.orgId}/breaches`, other.adminToken)).body.length, 0);
-    assert.equal((await t.call("GET", P(`/breaches/${breachId}`), other.adminToken)).status, 404);
     assert.equal(
-      (await t.call("POST", `/orgs/${other.orgId}/breaches/${breachId}/board-notices/initial`, other.adminToken, { body: "x" })).status,
+      (
+        await t.call(
+          "GET",
+          `/orgs/${other.orgId}/breaches/${breachId}`,
+          other.adminToken,
+        )
+      ).status,
+      404,
+    );
+    assert.equal(
+      (await t.call("GET", `/orgs/${other.orgId}/breaches`, other.adminToken))
+        .body.length,
+      0,
+    );
+    assert.equal(
+      (await t.call("GET", P(`/breaches/${breachId}`), other.adminToken))
+        .status,
+      404,
+    );
+    assert.equal(
+      (
+        await t.call(
+          "POST",
+          `/orgs/${other.orgId}/breaches/${breachId}/board-notices/initial`,
+          other.adminToken,
+          { body: "x" },
+        )
+      ).status,
       404,
     );
   });
 
   test("initial intimation: draft from facts, DPO records exact text sent (r.7(2)(a))", async () => {
-    const draft = await t.call("GET", P(`/breaches/${breachId}/board-notices/initial/draft`), viewerToken);
+    const draft = await t.call(
+      "GET",
+      P(`/breaches/${breachId}/board-notices/initial/draft`),
+      viewerToken,
+    );
     assert.equal(draft.status, 200);
     assert.match(draft.body.body, /rule 7\(2\)\(a\)/);
     assert.match(draft.body.body, /Acme India Pvt Ltd/);
@@ -149,13 +255,29 @@ describe("breach register", () => {
     assert.match(draft.body.body, /AWS ap-south-1/);
 
     const path = P(`/breaches/${breachId}/board-notices/report`);
-    assert.equal((await t.call("POST", path, dpoToken, { body: "report" })).status, 409, "initial first");
+    assert.equal(
+      (await t.call("POST", path, dpoToken, { body: "report" })).status,
+      409,
+      "initial first",
+    );
     const initial = P(`/breaches/${breachId}/board-notices/initial`);
-    assert.equal((await t.call("POST", initial, editorToken, { body: draft.body.body })).status, 403, "DPO / admin");
-    const ok = await t.call("POST", initial, dpoToken, { body: draft.body.body, boardReference: "DPB-ACK-1" });
+    assert.equal(
+      (await t.call("POST", initial, editorToken, { body: draft.body.body }))
+        .status,
+      403,
+      "DPO / admin",
+    );
+    const ok = await t.call("POST", initial, dpoToken, {
+      body: draft.body.body,
+      boardReference: "DPB-ACK-1",
+    });
     assert.equal(ok.status, 201, JSON.stringify(ok.body));
     assert.ok(ok.body.breach.boardInitialSentAt);
-    assert.equal((await t.call("POST", initial, dpoToken, { body: "again" })).status, 409, "once");
+    assert.equal(
+      (await t.call("POST", initial, dpoToken, { body: "again" })).status,
+      409,
+      "once",
+    );
   });
 
   test("updates are logged by field name; closing needs the detailed report", async () => {
@@ -166,13 +288,24 @@ describe("breach register", () => {
       personFindings: "No evidence of a malicious insider",
     });
     assert.equal(upd.status, 200, JSON.stringify(upd.body));
-    assert.equal((await t.call("POST", P(`/breaches/${breachId}/contain`), editorToken)).body.status, "contained");
-    assert.equal((await t.call("POST", P(`/breaches/${breachId}/close`), dpoToken)).status, 422);
+    assert.equal(
+      (await t.call("POST", P(`/breaches/${breachId}/contain`), editorToken))
+        .body.status,
+      "contained",
+    );
+    assert.equal(
+      (await t.call("POST", P(`/breaches/${breachId}/close`), dpoToken)).status,
+      422,
+    );
   });
 
   test("hourly alerts: 24 h, 6 h, overdue — each once", async () => {
-    const due = new Date((await t.call("GET", P(`/breaches/${breachId}`), viewerToken)).body.breach.boardReportDueAt);
-    const count = () => mails("dpo@acme.test", /Board report for breach/).length;
+    const due = new Date(
+      (await t.call("GET", P(`/breaches/${breachId}`), viewerToken)).body.breach
+        .boardReportDueAt,
+    );
+    const count = () =>
+      mails("dpo@acme.test", /Board report for breach/).length;
     await runOnce({ now: new Date(due.getTime() - 20 * HOUR), batch: 50 });
     assert.equal(count(), 1);
     await runOnce({ now: new Date(due.getTime() - 19 * HOUR), batch: 50 });
@@ -186,47 +319,125 @@ describe("breach register", () => {
 
   test("Board extension moves the deadline and re-arms alerts", async () => {
     const path = P(`/breaches/${breachId}/board-extension`);
-    const current = new Date((await t.call("GET", P(`/breaches/${breachId}`), viewerToken)).body.breach.boardReportDueAt);
-    assert.equal((await t.call("POST", path, dpoToken, { extendedUntil: current.toISOString(), note: "x" })).status, 422);
+    const current = new Date(
+      (await t.call("GET", P(`/breaches/${breachId}`), viewerToken)).body.breach
+        .boardReportDueAt,
+    );
+    assert.equal(
+      (
+        await t.call("POST", path, dpoToken, {
+          extendedUntil: current.toISOString(),
+          note: "x",
+        })
+      ).status,
+      422,
+    );
     const until = new Date(Date.now() + 5 * 24 * HOUR).toISOString();
-    assert.equal((await t.call("POST", path, editorToken, { extendedUntil: until, note: "Board letter" })).status, 403);
-    const ok = await t.call("POST", path, dpoToken, { extendedUntil: until, note: "Board allowed 5 more days by letter" });
+    assert.equal(
+      (
+        await t.call("POST", path, editorToken, {
+          extendedUntil: until,
+          note: "Board letter",
+        })
+      ).status,
+      403,
+    );
+    const ok = await t.call("POST", path, dpoToken, {
+      extendedUntil: until,
+      note: "Board allowed 5 more days by letter",
+    });
     assert.equal(ok.status, 200);
     assert.equal(ok.body.boardReportDueAt, until);
     assert.equal(ok.body.boardReportOverdue, false);
   });
 
   test("detailed report recorded, then the breach can be closed; timeline complete", async () => {
-    const draft = (await t.call("GET", P(`/breaches/${breachId}/board-notices/report/draft`), viewerToken)).body.body;
-    assert.match(draft, /\(ii\) Events, circumstances and reasons leading to the breach: Bucket policy changed/);
-    const rec = await t.call("POST", P(`/breaches/${breachId}/board-notices/report`), dpoToken, { body: draft });
+    const draft = (
+      await t.call(
+        "GET",
+        P(`/breaches/${breachId}/board-notices/report/draft`),
+        viewerToken,
+      )
+    ).body.body;
+    assert.match(
+      draft,
+      /\(ii\) Events, circumstances and reasons leading to the breach: Bucket policy changed/,
+    );
+    const rec = await t.call(
+      "POST",
+      P(`/breaches/${breachId}/board-notices/report`),
+      dpoToken,
+      { body: draft },
+    );
     assert.equal(rec.status, 201);
-    const closed = await t.call("POST", P(`/breaches/${breachId}/close`), dpoToken);
+    const closed = await t.call(
+      "POST",
+      P(`/breaches/${breachId}/close`),
+      dpoToken,
+    );
     assert.equal(closed.status, 200);
     assert.equal(closed.body.status, "closed");
-    assert.equal((await t.call("PATCH", P(`/breaches/${breachId}`), editorToken, { mitigation: "x" })).status, 409);
+    assert.equal(
+      (
+        await t.call("PATCH", P(`/breaches/${breachId}`), editorToken, {
+          mitigation: "x",
+        })
+      ).status,
+      409,
+    );
 
-    const d = (await t.call("GET", P(`/breaches/${breachId}`), viewerToken)).body;
-    assert.deepEqual(d.events.map((e: any) => e.event), [
-      "reported",
-      "board_initial_sent",
-      "updated",
-      "contained",
-      "board_extension_recorded",
-      "board_report_sent",
-      "closed",
-    ]);
-    assert.deepEqual(d.notices.map((n: any) => n.kind), ["initial", "report"]);
+    const d = (await t.call("GET", P(`/breaches/${breachId}`), viewerToken))
+      .body;
+    assert.deepEqual(
+      d.events.map((e: any) => e.event),
+      [
+        "reported",
+        "board_initial_sent",
+        "updated",
+        "contained",
+        "board_extension_recorded",
+        "board_report_sent",
+        "closed",
+      ],
+    );
+    assert.deepEqual(
+      d.notices.map((n: any) => n.kind),
+      ["initial", "report"],
+    );
   });
 
   test("dismiss needs a reason; reopen works", async () => {
-    const b = await t.call("POST", P("/breaches"), editorToken, { title: "Phishing email", description: "Reported by staff", severity: "low" });
+    const b = await t.call("POST", P("/breaches"), editorToken, {
+      title: "Phishing email",
+      description: "Reported by staff",
+      severity: "low",
+    });
     const path = P(`/breaches/${b.body.id}`);
-    assert.equal((await t.call("POST", `${path}/dismiss`, dpoToken, { reason: "" })).status, 400);
-    assert.equal((await t.call("POST", `${path}/dismiss`, editorToken, { reason: "No data" })).status, 403);
-    const dis = await t.call("POST", `${path}/dismiss`, dpoToken, { reason: "No personal data was accessed" });
+    assert.equal(
+      (await t.call("POST", `${path}/dismiss`, dpoToken, { reason: "" }))
+        .status,
+      400,
+    );
+    assert.equal(
+      (
+        await t.call("POST", `${path}/dismiss`, editorToken, {
+          reason: "No data",
+        })
+      ).status,
+      403,
+    );
+    const dis = await t.call("POST", `${path}/dismiss`, dpoToken, {
+      reason: "No personal data was accessed",
+    });
     assert.equal(dis.body.status, "dismissed");
-    assert.equal((await t.call("POST", `${path}/reopen`, dpoToken, { reason: "New evidence" })).body.status, "investigating");
+    assert.equal(
+      (
+        await t.call("POST", `${path}/reopen`, dpoToken, {
+          reason: "New evidence",
+        })
+      ).body.status,
+      "investigating",
+    );
   });
 
   test("overdue filter", async () => {
@@ -236,8 +447,13 @@ describe("breach register", () => {
       severity: "medium",
       awareAt: new Date(Date.now() - 80 * HOUR).toISOString(),
     });
-    const overdue = (await t.call("GET", P("/breaches?reportOverdue=true"), viewerToken)).body;
-    assert.deepEqual(overdue.map((x: any) => x.id), [b.body.id]);
+    const overdue = (
+      await t.call("GET", P("/breaches?reportOverdue=true"), viewerToken)
+    ).body;
+    assert.deepEqual(
+      overdue.map((x: any) => x.id),
+      [b.body.id],
+    );
     assert.equal(overdue[0].boardReportOverdue, true);
   });
 
@@ -245,35 +461,57 @@ describe("breach register", () => {
     for (const table of ["breach_events", "breach_board_notices"]) {
       await assert.rejects(
         t.db.execute(sql.raw(`UPDATE ${table} SET created_at = now()`)),
-        (e: Error & { cause?: Error }) => /append-only/.test(e.cause?.message ?? e.message),
+        (e: Error & { cause?: Error }) =>
+          /append-only/.test(e.cause?.message ?? e.message),
         table,
       );
     }
   });
 
   test("audit chain: every step, no free-text facts", async () => {
-    const items = (await t.call("GET", P("/audit?limit=500"), org.adminToken)).body.items;
+    const items = (await t.call("GET", P("/audit?limit=500"), org.adminToken))
+      .body.items;
     const breach = items.filter((a: any) => a.action.startsWith("breach."));
     assert.ok(breach.length >= 10);
     const text = JSON.stringify(breach);
-    for (const s of ["S3 bucket", "Bucket policy", "phone numbers", "AWS ap-south-1", "Board allowed"]) {
+    for (const s of [
+      "S3 bucket",
+      "Bucket policy",
+      "phone numbers",
+      "AWS ap-south-1",
+      "Board allowed",
+    ]) {
       assert.equal(text.includes(s), false, s);
     }
-    const sent = breach.find((a: any) => a.action === "breach.board_report_sent");
+    const sent = breach.find(
+      (a: any) => a.action === "breach.board_report_sent",
+    );
     assert.equal(sent.payload.onTime, true);
-    assert.equal((await t.call("GET", P("/audit/verify"), org.adminToken)).body.valid, true);
+    assert.equal(
+      (await t.call("GET", P("/audit/verify"), org.adminToken)).body.valid,
+      true,
+    );
   });
 });
 
 describe("part 2: notices to affected Data Principals (r.7(1)) and evidence", () => {
   let id: string;
   const ids: string[] = [];
-  const upload = (token: string, body: Uint8Array<ArrayBuffer> | string, type: string, fileName = "log.txt", orgPath = P(`/breaches/${id}`)) =>
-    t.app.request(`${orgPath}/evidence?fileName=${encodeURIComponent(fileName)}&description=Server%20log`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": type },
-      body,
-    });
+  const upload = (
+    token: string,
+    body: Uint8Array<ArrayBuffer> | string,
+    type: string,
+    fileName = "log.txt",
+    orgPath = P(`/breaches/${id}`),
+  ) =>
+    t.app.request(
+      `${orgPath}/evidence?fileName=${encodeURIComponent(fileName)}&description=Server%20log`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": type },
+        body,
+      },
+    );
 
   before(async () => {
     const b = await t.call("POST", P("/breaches"), editorToken, {
@@ -283,87 +521,252 @@ describe("part 2: notices to affected Data Principals (r.7(1)) and evidence", ()
       dataCategories: ["email", "order history"],
       consequencesForPrincipals: "Someone may have seen your order history.",
       mitigation: "We reset the affected passwords.",
-      safetyStepsForPrincipals: "Use a unique password and enable two-step login.",
+      safetyStepsForPrincipals:
+        "Use a unique password and enable two-step login.",
       severity: "high",
     });
     id = b.body.id;
-    for (const [ref, email] of [["C1", "c1@x.in"], ["C2", "c2@x.in"], ["C3", null]] as const) {
-      const p = await t.call("POST", P("/data-principals"), editorToken, { externalRef: ref, ...(email ? { email } : {}) });
+    for (const [ref, email] of [
+      ["C1", "c1@x.in"],
+      ["C2", "c2@x.in"],
+      ["C3", null],
+    ] as const) {
+      const p = await t.call("POST", P("/data-principals"), editorToken, {
+        externalRef: ref,
+        ...(email ? { email } : {}),
+      });
       ids.push(p.body.id);
     }
   });
 
   test("link affected principals: own org only, duplicates ignored", async () => {
     const path = P(`/breaches/${id}/affected-principals`);
-    assert.equal((await t.call("POST", path, viewerToken, { principalIds: ids })).status, 403);
-    const foreign = await t.call("POST", `/orgs/${other.orgId}/data-principals`, other.adminToken, { externalRef: "Z" });
-    assert.equal((await t.call("POST", path, editorToken, { principalIds: [foreign.body.id] })).status, 422);
-    assert.equal((await t.call("POST", path, editorToken, { principalIds: [] })).status, 400);
+    assert.equal(
+      (await t.call("POST", path, viewerToken, { principalIds: ids })).status,
+      403,
+    );
+    const foreign = await t.call(
+      "POST",
+      `/orgs/${other.orgId}/data-principals`,
+      other.adminToken,
+      { externalRef: "Z" },
+    );
+    assert.equal(
+      (
+        await t.call("POST", path, editorToken, {
+          principalIds: [foreign.body.id],
+        })
+      ).status,
+      422,
+    );
+    assert.equal(
+      (await t.call("POST", path, editorToken, { principalIds: [] })).status,
+      400,
+    );
     const ok = await t.call("POST", path, editorToken, { principalIds: ids });
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
     assert.equal(ok.body.added, 3);
-    assert.equal((await t.call("POST", path, editorToken, { principalIds: ids })).body.added, 0);
-    assert.equal((await t.call("GET", `/orgs/${other.orgId}/breaches/${id}/affected-principals`, other.adminToken)).status, 404);
+    assert.equal(
+      (await t.call("POST", path, editorToken, { principalIds: ids })).body
+        .added,
+      0,
+    );
+    assert.equal(
+      (
+        await t.call(
+          "GET",
+          `/orgs/${other.orgId}/breaches/${id}/affected-principals`,
+          other.adminToken,
+        )
+      ).status,
+      404,
+    );
   });
 
   test("draft covers r.7(1)(a)-(e); DPO approves; worker sends the same text to each", async () => {
-    const draft = (await t.call("GET", P(`/breaches/${id}/principal-notice/draft`), viewerToken)).body;
+    const draft = (
+      await t.call(
+        "GET",
+        P(`/breaches/${id}/principal-notice/draft`),
+        viewerToken,
+      )
+    ).body;
     assert.equal(draft.approved, false);
-    for (const part of ["What happened", "What data was involved", "What this may mean for you", "What we have done", "What you can do", "Questions: dpo@acme.test"]) {
+    for (const part of [
+      "What happened",
+      "What data was involved",
+      "What this may mean for you",
+      "What we have done",
+      "What you can do",
+      "Questions: dpo@acme.test",
+    ]) {
       assert.ok(draft.body.includes(part), part);
     }
     const path = P(`/breaches/${id}/principal-notice`);
     assert.equal((await t.call("POST", path, editorToken, draft)).status, 403);
-    const ok = await t.call("POST", path, dpoToken, { subject: draft.subject, body: draft.body });
+    const ok = await t.call("POST", path, dpoToken, {
+      subject: draft.subject,
+      body: draft.body,
+    });
     assert.equal(ok.status, 202, JSON.stringify(ok.body));
     assert.equal(ok.body.queued, 3);
 
     await runOnce({ batch: 50 });
-    const list = (await t.call("GET", P(`/breaches/${id}/affected-principals`), viewerToken)).body;
-    assert.deepEqual(list.counts, { notified: 2, noContact: 1, failed: 0, pending: 0 });
+    const list = (
+      await t.call("GET", P(`/breaches/${id}/affected-principals`), viewerToken)
+    ).body;
+    assert.deepEqual(list.counts, {
+      notified: 2,
+      noContact: 1,
+      failed: 0,
+      pending: 0,
+    });
     const sent = memoryOutbox.filter((m) => m.subject === draft.subject);
     assert.deepEqual(sent.map((m) => m.to).sort(), ["c1@x.in", "c2@x.in"]);
     assert.ok(sent.every((m) => m.text === draft.body));
 
-    assert.equal((await t.call("POST", path, dpoToken, { subject: draft.subject, body: "changed" })).status, 409, "text fixed");
-    assert.equal((await t.call("GET", P(`/breaches/${id}/principal-notice/draft`), viewerToken)).body.approved, true);
+    assert.equal(
+      (
+        await t.call("POST", path, dpoToken, {
+          subject: draft.subject,
+          body: "changed",
+        })
+      ).status,
+      409,
+      "text fixed",
+    );
+    assert.equal(
+      (
+        await t.call(
+          "GET",
+          P(`/breaches/${id}/principal-notice/draft`),
+          viewerToken,
+        )
+      ).body.approved,
+      true,
+    );
   });
 
   test("people added later get the approved notice; Board report (vi) counts them", async () => {
-    const late = await t.call("POST", P("/data-principals"), editorToken, { externalRef: "C4", email: "c4@x.in" });
-    await t.call("POST", P(`/breaches/${id}/affected-principals`), editorToken, { principalIds: [late.body.id] });
+    const late = await t.call("POST", P("/data-principals"), editorToken, {
+      externalRef: "C4",
+      email: "c4@x.in",
+    });
+    await t.call(
+      "POST",
+      P(`/breaches/${id}/affected-principals`),
+      editorToken,
+      { principalIds: [late.body.id] },
+    );
     await runOnce({ batch: 50 });
-    assert.ok(memoryOutbox.some((m) => m.to === "c4@x.in" && /security incident/.test(m.subject)));
-    const report = (await t.call("GET", P(`/breaches/${id}/board-notices/report/draft`), viewerToken)).body.body;
-    assert.match(report, /\(vi\) Intimations to affected Data Principals: 3 notified, 1 without registered contact/);
+    assert.ok(
+      memoryOutbox.some(
+        (m) => m.to === "c4@x.in" && /security incident/.test(m.subject),
+      ),
+    );
+    const report = (
+      await t.call(
+        "GET",
+        P(`/breaches/${id}/board-notices/report/draft`),
+        viewerToken,
+      )
+    ).body.body;
+    assert.match(
+      report,
+      /\(vi\) Intimations to affected Data Principals: 3 notified, 1 without registered contact/,
+    );
   });
 
   test("evidence: allowed types with matching content, 10 MB cap, org-scoped download", async () => {
     const pdf = new TextEncoder().encode("%PDF-1.4\nforensic report\n%%EOF");
-    assert.equal((await upload(viewerToken, pdf, "application/pdf", "report.pdf")).status, 403);
-    const ok = await upload(editorToken, pdf, "application/pdf", "../../Forensic report.pdf");
+    assert.equal(
+      (await upload(viewerToken, pdf, "application/pdf", "report.pdf")).status,
+      403,
+    );
+    const ok = await upload(
+      editorToken,
+      pdf,
+      "application/pdf",
+      "../../Forensic report.pdf",
+    );
     assert.equal(ok.status, 201, await ok.clone().text());
-    const body = await ok.json();
-    assert.equal(body.artifact.fileName, "Forensic_report.pdf", "path stripped, name sanitised");
+    const body = unwrapEnvelope(await ok.json());
+    assert.equal(
+      body.artifact.fileName,
+      "Forensic_report.pdf",
+      "path stripped, name sanitised",
+    );
 
-    assert.equal((await upload(editorToken, "<html>x</html>", "text/html", "x.html")).status, 422, "no active content");
-    assert.equal((await upload(editorToken, "not a png", "image/png", "x.png")).status, 422, "content must match type");
-    assert.equal((await upload(editorToken, "", "text/plain")).status, 422, "empty");
-    assert.equal((await upload(editorToken, new Uint8Array(10 * 1024 * 1024 + 1), "text/plain")).status, 413);
-    assert.equal((await upload(other.adminToken, pdf, "application/pdf", "x.pdf", `/orgs/${other.orgId}/breaches/${id}`)).status, 404);
+    assert.equal(
+      (await upload(editorToken, "<html>x</html>", "text/html", "x.html"))
+        .status,
+      422,
+      "no active content",
+    );
+    assert.equal(
+      (await upload(editorToken, "not a png", "image/png", "x.png")).status,
+      422,
+      "content must match type",
+    );
+    assert.equal(
+      (await upload(editorToken, "", "text/plain")).status,
+      422,
+      "empty",
+    );
+    assert.equal(
+      (
+        await upload(
+          editorToken,
+          new Uint8Array(10 * 1024 * 1024 + 1),
+          "text/plain",
+        )
+      ).status,
+      413,
+    );
+    assert.equal(
+      (
+        await upload(
+          other.adminToken,
+          pdf,
+          "application/pdf",
+          "x.pdf",
+          `/orgs/${other.orgId}/breaches/${id}`,
+        )
+      ).status,
+      404,
+    );
 
-    const list = (await t.call("GET", P(`/breaches/${id}/evidence`), viewerToken)).body;
+    const list = (
+      await t.call("GET", P(`/breaches/${id}/evidence`), viewerToken)
+    ).body;
     assert.equal(list.length, 1);
     assert.equal(list[0].description, "Server log");
-    const file = await t.app.request(P(`/artifacts/${list[0].artifactId}`), { headers: { Authorization: `Bearer ${viewerToken}` } });
+    const file = await t.app.request(P(`/artifacts/${list[0].artifactId}`), {
+      headers: { Authorization: `Bearer ${viewerToken}` },
+    });
     assert.equal(file.headers.get("content-type"), "application/pdf");
     assert.equal(await file.text(), "%PDF-1.4\nforensic report\n%%EOF");
-    assert.equal((await t.call("GET", `/orgs/${other.orgId}/artifacts/${list[0].artifactId}`, other.adminToken)).status, 404);
+    assert.equal(
+      (
+        await t.call(
+          "GET",
+          `/orgs/${other.orgId}/artifacts/${list[0].artifactId}`,
+          other.adminToken,
+        )
+      ).status,
+      404,
+    );
   });
 
   test("no recipient addresses or notice text in the audit chain", async () => {
-    const text = JSON.stringify((await t.call("GET", P("/audit?limit=500"), org.adminToken)).body.items);
-    for (const s of ["c1@x.in", "c4@x.in", "order history", "unique password"]) assert.equal(text.includes(s), false, s);
-    assert.equal((await t.call("GET", P("/audit/verify"), org.adminToken)).body.valid, true);
+    const text = JSON.stringify(
+      (await t.call("GET", P("/audit?limit=500"), org.adminToken)).body.items,
+    );
+    for (const s of ["c1@x.in", "c4@x.in", "order history", "unique password"])
+      assert.equal(text.includes(s), false, s);
+    assert.equal(
+      (await t.call("GET", P("/audit/verify"), org.adminToken)).body.valid,
+      true,
+    );
   });
 });

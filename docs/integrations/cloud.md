@@ -1,5 +1,7 @@
 # Connecting AWS and Google Workspace (read-only)
 
+> Every JSON response is wrapped: `{ "status": 200, "detail": "OK", "data": … }` on success, `{ "status": 4xx, "error": { "code", "message", "issues"? } }` on errors. The fields named below are inside `data`.
+
 The platform reads **where** personal data is stored and **how** it is protected. It never
 changes anything in your account and never reads the contents of a bucket, table or mailbox.
 Results feed the security-safeguards control (DPDPA s.8(5), DPDP Rules r.6) and the
@@ -20,7 +22,7 @@ can read data sees the inventory and findings. Every account is also synced once
    { "name": "Production AWS", "roleArn": "arn:aws:iam::<account>:role/dpdpa-readonly", "regions": ["ap-south-1", "us-east-1"] }
    ```
 
-   The answer contains `config.externalId`. Keep it for the trust policy.
+   The answer contains `data.config.externalId`. Keep it for the trust policy.
 2. In your AWS account create the role `dpdpa-readonly`:
    - **Trust policy** — allow only the platform's inventory role (not its whole account) to
      assume it, and only with your external ID:

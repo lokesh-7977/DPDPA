@@ -9,7 +9,7 @@ process.env.RATE_LIMIT_ENABLED = "false";
 delete process.env.DATABASE_URL;
 process.env.JWT_SECRET ??= "test-secret-test-secret-test-secret-123";
 
-const { bootTestApp } = await import("./helpers.ts");
+const { bootTestApp, unwrapEnvelope } = await import("./helpers.ts");
 const { sql } = await import("drizzle-orm");
 const { questionnaire, scoreAssessment, contractStatus, missingClauses } =
   await import("../domain/vendors.ts");
@@ -422,7 +422,7 @@ describe("vendors", () => {
     assert.equal((await upload(editorToken, "not a pdf")).status, 422);
     const ok = await upload(editorToken, pdf);
     assert.equal(ok.status, 200, await ok.clone().text());
-    assert.ok((await ok.json()).artifactId);
+    assert.ok(unwrapEnvelope(await ok.json()).artifactId);
     assert.equal((await upload(editorToken, pdf)).status, 409);
     await assert.rejects(
       t.db.execute(sql`UPDATE vendor_contracts SET reference = 'edited'`),

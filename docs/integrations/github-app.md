@@ -1,5 +1,7 @@
 # Managed code scanning with the GitHub App
 
+> Every JSON response is wrapped: `{ "status": 200, "detail": "OK", "data": … }` on success, `{ "status": 4xx, "error": { "code", "message", "issues"? } }` on errors. The fields named below are inside `data`.
+
 Instead of running HoundDog in your own CI (`docs/integrations/hounddog-ci.md`), install the
 platform's GitHub App on the repositories you choose. The platform scans them and the results
 appear exactly like CI uploads: findings, the data map, ROPA and AI-system suggestions, and the
@@ -11,7 +13,7 @@ security controls.
 
 ## Install (org admin)
 
-1. `POST /orgs/{orgId}/github/install-link` returns a GitHub URL, valid for 15 minutes and
+1. `POST /orgs/{orgId}/github/install-link` returns a GitHub URL (`data.url`), valid for 15 minutes and
    usable once, from the same browser (a cookie ties the link to it).
 2. On GitHub, pick **only the repositories** to scan (not "All repositories" unless you mean it)
    and authorize the App when GitHub asks (this proves you control the installation).
