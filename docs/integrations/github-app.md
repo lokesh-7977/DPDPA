@@ -7,9 +7,9 @@ platform's GitHub App on the repositories you choose. The platform scans them an
 appear exactly like CI uploads: findings, the data map, ROPA and AI-system suggestions, and the
 security controls.
 
-> Status: built and tested against a simulated GitHub. Live installs and scans are switched on
-> once the platform's GitHub App is registered and its scanner sandbox is deployed; until then
-> the install link is refused ("not configured") or a scan shows `GithubUnavailable`.
+> Status: the GitHub client is built and tested against recorded API responses. Live installs
+> work once the platform's GitHub App is registered and configured; scans need the scanner
+> sandbox, which is deployed with the hosting (until then a scan shows `GithubUnavailable`).
 
 ## Install (org admin)
 
@@ -22,7 +22,8 @@ security controls.
    that installation. One installation belongs to one organization; any refusal looks the same
    ("start again from the platform").
 
-The App asks GitHub for **read-only** access: repository contents and metadata. It never
+The App asks GitHub for **read-only** access: repository contents and metadata, plus
+organization members (only to check that the person installing is an owner). It never
 writes to your repositories, opens issues or comments.
 
 ## Choose what is scanned (DPO or admin)
@@ -63,9 +64,11 @@ the list; past scan results stay.
 |---|---|
 | `GITHUB_APP_SLUG` | The App's URL name (`github.com/apps/<slug>`) |
 | `GITHUB_WEBHOOK_SECRET` | Webhook secret (≥ 32 random characters); every delivery's `X-Hub-Signature-256` is checked on the raw body |
-| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | For the real GitHub client (installation tokens) |
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | For the real GitHub client (installation tokens); the PEM may be on one line with `\n` |
+| `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | The App's OAuth client, to check the installer on `/github/setup` |
 
-App registration: permissions **Contents: read**, **Metadata: read**; subscribe to the **Push**
+App registration: permissions **Contents: read**, **Metadata: read**, organization
+**Members: read** (to check that an organization installer is an owner); subscribe to the **Push**
 event (installation and installation-repository events are always sent); turn on **Request user
 authorization (OAuth) during installation** and set the **Callback URL** to
 `https://<api>/github/setup` (with OAuth on, GitHub sends installers there instead of the Setup

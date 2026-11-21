@@ -1,3 +1,4 @@
+import { createPrivateKey } from "node:crypto";
 import { pino } from "pino";
 import { z } from "zod";
 
@@ -94,7 +95,7 @@ const schema = z.object({
   STORAGE_DIR: z.string().default(".storage"),
   /**
    * GitHub App for managed HoundDog scans (step 17). Off unless slug + webhook secret are set.
-   * App ID / private key are for the real GitHub client (not yet implemented).
+   * App ID, private key and the OAuth client id / secret enable the real GitHub client.
    */
   GITHUB_APP_SLUG: z
     .string()
@@ -103,6 +104,15 @@ const schema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().min(32).optional(),
   GITHUB_APP_ID: z.coerce.number().int().positive().optional(),
   GITHUB_APP_PRIVATE_KEY: z.string().min(100).optional(),
+  GITHUB_APP_CLIENT_ID: z.string().min(1).max(100).optional(),
+  GITHUB_APP_CLIENT_SECRET: z.string().min(20).optional(),
+  /**
+   * The platform's own AWS credentials (inventory worker), used only to assume each customer's
+   * read-only role. Without them the AWS connector is "not configured".
+   */
+  AWS_ACCESS_KEY_ID: z.string().regex(/^[A-Z0-9]{16,128}$/).optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().min(20).optional(),
+  AWS_SESSION_TOKEN: z.string().min(20).optional(),
   /** Worker: how often an idle worker polls the job queue. */
   WORKER_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(2000),
   /** Worker: jobs claimed per poll. */
@@ -131,6 +141,44 @@ if (
     "CREDENTIAL_VAULT_KEY_PREVIOUS needs CREDENTIAL_VAULT_KEY set to a different (new) key",
   );
   process.exit(1);
+}
+
+// Integration credentials come as complete sets (names only in the message, never values).
+{
+  const sets: Record<string, (string | number | undefined)[]> = {
+    "AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY": [
+      env.AWS_ACCESS_KEY_ID,
+      env.AWS_SECRET_ACCESS_KEY,
+    ],
+    "GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + GITHUB_APP_CLIENT_ID + GITHUB_APP_CLIENT_SECRET":
+      [
+        env.GITHUB_APP_ID,
+        env.GITHUB_APP_PRIVATE_KEY,
+        env.GITHUB_APP_CLIENT_ID,
+        env.GITHUB_APP_CLIENT_SECRET,
+      ],
+  };
+  const partial = Object.entries(sets)
+    .filter(([, v]) => v.some(Boolean) && !v.every(Boolean))
+    .map(([k]) => k);
+  if (env.AWS_SESSION_TOKEN && !env.AWS_ACCESS_KEY_ID)
+    partial.push("AWS_SESSION_TOKEN needs AWS_ACCESS_KEY_ID");
+  if (partial.length) {
+    bootLog.fatal({ incomplete: partial }, "Set these together or not at all");
+    process.exit(1);
+  }
+  if (env.GITHUB_APP_PRIVATE_KEY) {
+    try {
+      createPrivateKey(env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, "\n"));
+    } catch {
+      bootLog.fatal("GITHUB_APP_PRIVATE_KEY is not a valid PEM private key");
+      process.exit(1);
+    }
+  }
+  if (env.AWS_SESSION_TOKEN)
+    bootLog.warn(
+      "AWS_SESSION_TOKEN set: temporary credentials expire and AWS syncs then fail (docs/operations.md)",
+    );
 }
 
 if (env.MAIL_DRIVER === "resend" && (!env.RESEND_API_KEY || !env.MAIL_FROM)) {

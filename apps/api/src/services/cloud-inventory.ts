@@ -18,11 +18,15 @@ import type {
  * false; time out each call; throw errors whose name is a fixed code (never log e.message, it can
  * hold ARNs or emails). AWS: STS AssumeRole with the stored external ID, session name
  * `dpdpa-<integrationId>`, 15-minute session, allow-listed regions only, no custom endpoints,
- * check the assumed account matches the role ARN. Google: fixed token endpoint
+ * check the assumed account matches the role ARN; never a role in the platform's own account. Google: fixed token endpoint
  * (https://oauth2.googleapis.com/token), subject = adminEmail, the two read-only scopes only.
  */
 export type InventoryProvider = {
-  aws(config: AwsConfig, lease?: Lease): Promise<AwsInventory>;
+  aws(
+    config: AwsConfig,
+    lease?: Lease,
+    ref?: { integrationId: string },
+  ): Promise<AwsInventory>;
   workspace(
     config: WorkspaceConfig,
     serviceAccountKey: string,
