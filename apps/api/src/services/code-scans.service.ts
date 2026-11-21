@@ -33,6 +33,8 @@ export type SarifUploadInput = {
   provider: RepoProvider;
   commitSha: string;
   branch?: string;
+  /** The host's default branch as the CI reports it; decides the baseline. */
+  defaultBranch?: string;
   ciRunUrl?: string;
   sarif: unknown;
 };
@@ -49,10 +51,12 @@ export const codeScansService = {
    */
   async ingestSarif(ctx: ApiKeyContext, input: SarifUploadInput) {
     assertScope(ctx, "scans:upload");
+    // Only for a new asset: a CI key never changes an existing asset's baseline branch.
     return (await codeScansService.ingestForOrg(
       ctx.apiKey.orgId,
       ctx.actor,
       input,
+      input.defaultBranch ? { initialDefaultBranch: input.defaultBranch } : {},
     ))!;
   },
 
@@ -60,6 +64,7 @@ export const codeScansService = {
    * Same ingest for platform-run scans (GitHub App, step 17). Internal: the caller has checked
    * access. Options (all inside the ingest transaction):
    * - `defaultBranch`: the host's default branch; the asset follows it (baseline decision);
+   * - `initialDefaultBranch`: used only when the asset is created (CI uploads);
    * - `previousRepository`: the name results were recorded under before a rename;
    * - `guard`: runs first; false skips the ingest (returns null);
    * - `after`: runs last (e.g. the caller's own status update).
@@ -70,6 +75,7 @@ export const codeScansService = {
     input: SarifUploadInput,
     opts: {
       defaultBranch?: string;
+      initialDefaultBranch?: string;
       previousRepository?: string | null;
       guard?: (tx: Tx) => Promise<boolean>;
       after?: (tx: Tx) => Promise<void>;
@@ -123,7 +129,8 @@ export const codeScansService = {
         orgId,
         provider: input.provider,
         fullName: input.repository,
-        defaultBranch: opts.defaultBranch ?? input.branch ?? "main",
+        defaultBranch:
+          opts.defaultBranch ?? opts.initialDefaultBranch ?? input.branch ?? "main",
       });
       // The host's default branch decides the baseline (it may have been renamed).
       if (opts.defaultBranch && asset.defaultBranch !== opts.defaultBranch) {

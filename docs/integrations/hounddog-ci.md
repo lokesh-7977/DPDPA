@@ -26,16 +26,23 @@ Every CI below runs the same script. Save it as `.dpdpa/upload.sh` (executable):
 set -eu
 SARIF=$1 PROVIDER=$2 REPO=$3 SHA=$4 BRANCH=$5 DEFAULT=$6 RUN_URL=${7:-}
 
-# The default branch is the baseline: send no branch for it (a PR branch never becomes the baseline).
-if [ "$BRANCH" = "$DEFAULT" ]; then BRANCH=""; fi
+case "$DPDPA_API_URL" in https://*) ;; *) echo "DPDPA_API_URL must be https" >&2; exit 1 ;; esac
+# The key goes to curl through a private file, never on the command line (visible in ps).
+umask 077
+AUTH=$(mktemp)
+trap 'rm -f "$AUTH"' EXIT
+printf 'Authorization: Bearer %s\n' "$DPDPA_API_KEY" > "$AUTH"
 
+# defaultBranch sets the baseline branch when this upload creates the repository's record
+# (a PR uploaded first never becomes the baseline).
 jq -n --arg repo "$REPO" --arg provider "$PROVIDER" --arg sha "$SHA" \
-      --arg branch "$BRANCH" --arg run "$RUN_URL" --slurpfile sarif "$SARIF" '
+      --arg branch "$BRANCH" --arg default "$DEFAULT" --arg run "$RUN_URL" --slurpfile sarif "$SARIF" '
   {repository: $repo, provider: $provider, commitSha: $sha, sarif: $sarif[0]}
   + (if $branch != "" then {branch: $branch} else {} end)
+  + (if $default != "" then {defaultBranch: $default} else {} end)
   + (if ($run | startswith("https://")) then {ciRunUrl: $run} else {} end)' \
 | curl --fail-with-body -sS -X POST "$DPDPA_API_URL/ci/code-scans/sarif" \
-    -H "Authorization: Bearer $DPDPA_API_KEY" -H "Content-Type: application/json" \
+    -H @"$AUTH" -H "Content-Type: application/json" \
     --data-binary @- -o dpdpa-result.json \
   || { cat dpdpa-result.json >&2; exit 1; }
 
@@ -44,7 +51,9 @@ jq -r '.data.stats | "DPDPA: \(.results) results, \(.newFindings) new findings (
 echo "$NEW_HIGH" > dpdpa-new-high.txt
 ```
 
-The HoundDog step is the same everywhere (pinned version, auto-update off):
+The HoundDog step is the same everywhere (pinned version, auto-update off). Run it **before**
+the DPDPA key is in the environment, and pin the installer itself to a release tag or commit you
+have reviewed instead of `main`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/hounddogai/hounddog/main/install.sh | sh -s -- --version 4.2.0
@@ -53,8 +62,11 @@ HOUNDDOG_DISABLE_AUTOUPDATE=1 ~/.local/bin/hounddog scan --output-format=sarif -
 
 `HOUNDDOG_API_KEY` (your HoundDog key) is optional; without it the bundled rules run locally.
 
-**Pull requests from forks** don't receive CI secrets on most platforms, so the upload step is
-skipped for them (the examples check this). Scan them after merge on the default branch.
+**Pull requests from forks must never get the key.** A fork controls every file it changes,
+`.dpdpa/upload.sh` included, so the examples skip the upload for fork PRs; scan them after
+merge on the default branch. Never switch GitHub to `pull_request_target` for this workflow.
+Values that come from the pull request (branch names) are passed as environment variables, never
+pasted into the script, because a branch name can contain shell commands.
 
 ## 3. Pick your CI
 
@@ -90,11 +102,13 @@ jobs:
         env:
           DPDPA_API_URL: ${{ secrets.DPDPA_API_URL }}
           DPDPA_API_KEY: ${{ secrets.DPDPA_API_KEY }}
+          # From the event: environment variables, never ${{ }} inside run (shell injection).
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          sh .dpdpa/upload.sh hounddog.sarif github "$GITHUB_REPOSITORY" \
-            "${{ github.event.pull_request.head.sha || github.sha }}" \
-            "${{ github.head_ref || github.ref_name }}" \
-            "${{ github.event.repository.default_branch }}" \
+          sh .dpdpa/upload.sh hounddog.sarif github "$GITHUB_REPOSITORY" "$COMMIT" \
+            "$BRANCH" "$DEFAULT_BRANCH" \
             "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       - name: Fail PR on new high-severity personal-data flows
@@ -108,8 +122,10 @@ jobs:
 
 ### GitLab CI — `.gitlab-ci.yml`
 
-Add `DPDPA_API_URL` and `DPDPA_API_KEY` under Settings → CI/CD → Variables (masked, protected
-off if merge requests must upload too).
+Add `DPDPA_API_URL` and `DPDPA_API_KEY` under Settings → CI/CD → Variables, **masked and
+protected**: only protected branches (the default branch) then get the key. If merge requests must
+upload too, use a second key just for them (revocable on its own), and only allow merge requests
+from people with write access (the rule below already skips forks).
 
 ```yaml
 privacy-scan:
@@ -138,7 +154,8 @@ privacy-scan:
 ### Bitbucket Pipelines — `bitbucket-pipelines.yml`
 
 Add `DPDPA_API_URL` and `DPDPA_API_KEY` as secured repository variables, and set
-`DEFAULT_BRANCH` (e.g. `main`): Bitbucket has no built-in variable for it.
+`DEFAULT_BRANCH` (e.g. `main`): Bitbucket has no built-in variable for it. Keep pipelines for
+pull requests from forks without secured variables (Bitbucket's default); never enable them.
 
 ```yaml
 image: ubuntu:24.04
@@ -169,27 +186,38 @@ pipelines:
 
 ### Jenkins (multibranch) — `Jenkinsfile`
 
-Store the key as a "Secret text" credential `dpdpa-api-key`; set `DPDPA_API_URL`, the repository
-name and its default branch in the environment block.
+Store the key as a "Secret text" credential `dpdpa-api-key`; set the API URL, the repository
+name and its default branch in the environment block. The key is loaded only around the upload,
+and never for pull requests from forks (`CHANGE_FORK`).
 
 ```groovy
 pipeline {
   agent any
   environment {
     DPDPA_API_URL = 'https://api.your-platform.in'
-    DPDPA_API_KEY = credentials('dpdpa-api-key')
     REPO = 'acme/payments-api'
     DEFAULT_BRANCH = 'main'
     HOUNDDOG_DISABLE_AUTOUPDATE = '1'
   }
   stages {
-    stage('Privacy scan') {
+    stage('Scan') {
       steps {
         sh '''
           curl -fsSL https://raw.githubusercontent.com/hounddogai/hounddog/main/install.sh | sh -s -- --version 4.2.0
           ~/.local/bin/hounddog scan --output-format=sarif --output-path=hounddog.sarif .
-          sh .dpdpa/upload.sh hounddog.sarif other "$REPO" "$GIT_COMMIT" \
-            "${CHANGE_BRANCH:-$BRANCH_NAME}" "$DEFAULT_BRANCH" "$BUILD_URL"
+        '''
+      }
+    }
+    stage('Upload') {
+      when { expression { env.CHANGE_FORK == null } }
+      steps {
+        withCredentials([string(credentialsId: 'dpdpa-api-key', variable: 'DPDPA_API_KEY')]) {
+          sh '''
+            sh .dpdpa/upload.sh hounddog.sarif other "$REPO" "$GIT_COMMIT" \
+              "${CHANGE_BRANCH:-$BRANCH_NAME}" "$DEFAULT_BRANCH" "$BUILD_URL"
+          '''
+        }
+        sh '''
           if [ -n "${CHANGE_ID:-}" ] && [ "$(cat dpdpa-new-high.txt)" != "0" ]; then
             echo "New high-severity personal-data flows introduced"; exit 1
           fi
@@ -199,6 +227,10 @@ pipeline {
   }
 }
 ```
+
+**Check the first default-branch run says `baseline: true`.** Where you type the default branch
+yourself (Jenkins `DEFAULT_BRANCH`, Bitbucket variable), a wrong value means the inventory never
+updates. Since the first upload fixes it, correct the value before that run.
 
 Use the real host (`github`, `gitlab`, `bitbucket`, `azure_devops`) instead of `other` when you
 know it: findings then link back to the right place.
@@ -213,12 +245,15 @@ Fail the build when `dpdpa-new-high.txt` isn't `0` on a pull / merge request.
 
 | Upload | Effect |
 |---|---|
-| Default branch (no `branch` sent) | Baseline: updates data elements, data flows and findings (new → open, gone → resolved, back → reopened). Human decisions (`accepted_risk`, `false_positive`, `in_progress`) are never overridden. |
+| Default branch (`branch` = `defaultBranch`, or no `branch`) | Baseline: updates data elements, data flows and findings (new → open, gone → resolved, back → reopened). Human decisions (`accepted_risk`, `false_positive`, `in_progress`) are never overridden. |
 | Any other branch (PR) | Recorded as a scan; `stats.newFindings` / `stats.newHighFindings` compare against the baseline. Nothing in the inventory changes. |
 | Same file, same commit | Idempotent: returns the earlier run (`data.replayed: true`). |
 
-Run the default-branch scan **first** for a new repository: the first upload decides the
-repository's baseline branch (`main` when no branch is sent).
+Always send `defaultBranch` (the script does): when an upload creates the repository's record it
+sets the baseline branch, so a pull request uploaded first never becomes the baseline. Without
+it the first upload decides (its `branch`, else `main`). Later uploads can't change it (a
+leaked CI key can't repoint the baseline); repositories connected through the GitHub App follow
+renames on GitHub automatically.
 
 Limits: 10 MB request, 60 uploads per key per 15 minutes.
 
