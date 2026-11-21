@@ -1,159 +1,179 @@
-# Turborepo starter
+# DPDPA Consent Platform
 
-This Turborepo starter is maintained by the Turborepo core team.
+Consent management and compliance platform for India's **Digital Personal Data Protection Act, 2023**
+and the **DPDP Rules, 2025**, with a tamper-evident audit trail.
 
-## Using this example
+Organizations use it to record consent, answer Data Principal rights requests, handle breaches,
+keep their records of processing, find personal data in their code, websites and cloud, and prove
+compliance to auditors and customers.
 
-Run the following command:
+> **Status:** backend (API + worker) is feature-complete for the current roadmap. The web app in
+> `apps/web` is still the starter page plus a typed API client; product screens come later.
 
-```sh
-npx create-turbo@latest
-```
+---
 
-## What's inside?
+## What it does
 
-This Turborepo includes the following packages/apps:
+| Area | Highlights |
+|---|---|
+| Consent | Purposes, Data Principals, consent grant / withdraw, versioned multilingual notices (s.5, r.3), guardian consent for children and persons with disability (s.9, r.10–11), Consent Manager registry |
+| Rights | Public request form with email verification, 1–90 day deadlines, access / correction / erasure / nomination (s.11–14, r.14) |
+| Breaches | 72-hour Board report clock, initial and detailed Board notices, notices to affected people (s.8(6), r.7) |
+| Records | ROPA, DPIA, AI system register, vendors and contracts, cross-border transfers, retention and automatic erasure (s.8(7), r.8) |
+| Discovery | HoundDog code scans (CI upload or GitHub App), website audit and security checks on verified domains, AWS and Google Workspace inventory |
+| Programme | Control catalog, evidence with independent approval, policies from templates, risk register, training, access reviews, 0–100 compliance score with PDF report |
+| Sharing | Public trust center, security questionnaires, read-only auditor rooms, read-only MCP server for AI assistants |
+| Platform | Multi-tenant with row-level security, hash-chained append-only audit log, Postgres job queue |
 
-### Apps and Packages
+Full feature map and end-to-end flows: [`docs/features.md`](docs/features.md).
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `@next/eslint-plugin-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+---
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+## Tech stack
 
-### Utilities
+- **Monorepo:** Turborepo 2, pnpm 11 workspaces, Node ≥ 24, TypeScript 7 (TypeScript only, no `.js`)
+- **API:** Hono 4 on Node, `@hono/zod-openapi` (Zod 4), OpenAPI at `/openapi.json`, Scalar docs at `/docs`
+- **Database:** PostgreSQL with Drizzle ORM; embedded PGlite when `DATABASE_URL` is unset (dev / test only)
+- **Auth:** email + password (argon2id), short-lived JWT access token + rotating httpOnly refresh cookie, org API keys (`dpk_…`) with scopes
+- **Email:** Resend (production), console / memory drivers for dev and tests
+- **Web:** Next.js 16, React 19, typed Hono RPC client
+- **Tests:** `node:test` via `tsx --test` against in-memory PGlite
 
-This Turborepo has some additional tools already setup for you:
+---
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
+## Getting started
 
-### Build
+### Prerequisites
 
-To build all apps and packages, run the following command:
+- Node.js 24 or newer
+- pnpm 11 (`corepack enable` picks the version from `package.json`)
+- PostgreSQL is optional for local work: without `DATABASE_URL` the API uses embedded PGlite in `apps/api/.pglite`
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo build
-pnpm exec turbo build
-pnpm exec turbo build
-```
-
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+### Setup
 
 ```sh
-turbo build --filter=docs
+pnpm install
+
+# API configuration: copy the example and fill it in
+cp apps/api/.env.example apps/api/.env
+# Minimum for local dev: JWT_SECRET (at least 32 characters)
+
+pnpm --filter api db:migrate        # create tables
+pnpm --filter api seed:catalog      # load DPDPA / DPDP Rules / AIGIS catalog
+pnpm --filter api create-super-admin you@example.com "Your Name"
 ```
 
-Without global `turbo`:
+### Run
 
 ```sh
-npx turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
+pnpm --filter api dev       # API on http://localhost:3002 (docs at /docs)
+pnpm --filter api worker    # background jobs (emails, scans, reports, digests)
+pnpm --filter web dev       # web app on http://localhost:3000
 ```
 
-### Develop
+`pnpm dev` starts every app at once.
 
-To develop all apps and packages, run the following command:
+### Key settings
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+All settings are validated at startup in `apps/api/src/config/env.ts`; `apps/api/.env.example`
+documents each one.
 
-```sh
-cd my-turborepo
-turbo dev
+| Variable | Needed | Purpose |
+|---|---|---|
+| `JWT_SECRET` | always | Signs access tokens (≥ 32 chars; production: real random secret, ≥ 43) |
+| `DATABASE_URL` | production | Postgres connection; unset = embedded PGlite |
+| `AUDIT_HMAC_KEY` | production | Hashes IP / user agent before they enter the audit trail (own secret, not `JWT_SECRET`) |
+| `CREDENTIAL_VAULT_KEY` | production | AES-256-GCM key for stored scan / integration secrets |
+| `MAIL_DRIVER`, `RESEND_API_KEY`, `MAIL_FROM` | production | Outgoing email (`resend` required in production) |
+| `APP_URL`, `CORS_ORIGINS` | as needed | Links in emails, allowed browser origins |
+| `RATE_LIMIT_STORE` | production | `postgres` so limits are shared across instances |
+| `STORAGE_DRIVER`, `STORAGE_DIR` | as needed | Where uploaded files and reports are kept |
+| `GITHUB_APP_*`, `GITHUB_WEBHOOK_SECRET` | optional | GitHub App for managed code scans |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | optional (worker) | AWS inventory connector |
+
+Production refuses to start with unsafe settings (missing secrets, non-https `APP_URL` or
+CORS origins, in-memory rate limits / storage, or a database login that could bypass
+row-level security). See [`docs/operations.md`](docs/operations.md).
+
+---
+
+## Commands
+
+Run from the repo root. `--filter` targets one workspace.
+
+| Task | Command |
+|---|---|
+| Dev (all / api / web) | `pnpm dev` · `pnpm --filter api dev` · `pnpm --filter web dev` |
+| Worker | `pnpm --filter api worker` (production: `start:worker`) |
+| Lint | `pnpm lint` |
+| Typecheck | `pnpm check-types` |
+| Format | `pnpm format` |
+| Test (API) | `pnpm --filter api test` |
+| Build | `pnpm build` |
+| Start built API | `pnpm --filter api start` |
+| Migrate / new migration | `pnpm --filter api db:migrate` · `pnpm --filter api db:generate` |
+| Database browser | `pnpm --filter api db:studio` |
+| Seed compliance catalog | `pnpm --filter api seed:catalog` |
+| Create super admin | `pnpm --filter api create-super-admin <email> "<Name>"` |
+| Rotate vault key | `pnpm --filter api rotate-vault-key` |
+| Dependency audit | `pnpm audit` |
+
+---
+
+## Repository layout
+
+```text
+apps/
+  api/                Hono API + worker (port 3002)
+    catalog/          compliance catalog content (JSON, versioned)
+    drizzle/          SQL migrations
+    src/
+      config/         env validation, logger
+      domain/         pure business rules (no I/O)
+      db/             Drizzle client, schemas per module, row-level security scope
+      repositories/   queries only
+      services/       business logic, transactions, audit recording, external adapters
+      jobs/           background job handlers
+      http/           routes, request/response schemas, middleware
+      scripts/        CLI scripts
+      test/           end-to-end tests
+  web/                Next.js app (port 3000)
+  docs/               Next.js docs app (port 3001, template)
+packages/
+  ui/                 shared React components
+  eslint-config/      shared ESLint configs
+  typescript-config/  shared tsconfigs
+docs/
+  features.md         feature map and flows
+  operations.md       operations runbook
+  integrations/       customer guides (CI code scans, cloud, GitHub App, MCP)
+  plans/              implementation plans
+  health/             codebase health reports
 ```
 
-Without global `turbo`, use your package manager:
+Backend layers are enforced by ESLint: `http → services → repositories → db`, and `domain`
+imports nothing above it.
 
-```sh
-cd my-turborepo
-npx turbo dev
-pnpm exec turbo dev
-pnpm exec turbo dev
-```
+---
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+## Documentation
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+- [`docs/features.md`](docs/features.md): what the platform does and how the flows connect
+- [`docs/operations.md`](docs/operations.md): deployment checks, row-level security, key rotation, health
+- [`docs/integrations/hounddog-ci.md`](docs/integrations/hounddog-ci.md): upload code scans from GitHub, GitLab, Bitbucket or Jenkins
+- [`docs/integrations/cloud.md`](docs/integrations/cloud.md): AWS and Google Workspace connectors
+- [`docs/integrations/github-app.md`](docs/integrations/github-app.md): GitHub App for managed scans
+- [`docs/integrations/mcp.md`](docs/integrations/mcp.md): connect an AI assistant over MCP
+- [`CLAUDE.md`](CLAUDE.md): detailed module reference and coding conventions
+- API reference: run the API and open `http://localhost:3002/docs`
 
-```sh
-turbo dev --filter=web
-```
+---
 
-Without global `turbo`:
+## Contributing
 
-```sh
-npx turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-pnpm exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-pnpm exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+- Work happens on the `dev` branch; `main` receives reviewed changes only.
+- Every state change goes through a service transaction that writes an audit entry; audit
+  entries never contain personal data.
+- Schema changes: edit `apps/api/src/db/schemas/<module>`, run `db:generate`, commit the SQL;
+  never edit an applied migration.
+- Never commit secrets or `.env` files.
